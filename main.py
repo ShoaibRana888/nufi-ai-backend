@@ -13,6 +13,7 @@ from api import debug
 from api import notifications
 from api import notification_preferences
 from api.meals import router as meals_router
+from api.water import router as water_router
 from api.weekly_context import router as weekly_router
 from api.activity_check import router as activity_check_router
 from api.meal_suggestions import router as suggestions_router
@@ -106,6 +107,7 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(fcm.router)
 app.include_router(meals_router, prefix="/api/health/meals", tags=["meals"])
 app.include_router(flutter_compat.router, prefix="/api/health", tags=["flutter-health"])
+app.include_router(water_router, prefix="/api/health", tags=["water"])
 app.include_router(chat.router, prefix="/api/health")
 app.include_router(weekly_router, prefix="/api/health")
 app.include_router(activity_check_router, prefix="/api/health")
