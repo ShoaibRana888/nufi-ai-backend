@@ -91,7 +91,7 @@ class OpenAIService:
         except Exception as e:
             print(f"❌ Error in micronutrient analysis: {e}")
             # Return basic analysis as fallback
-            return await self.analyze_meal(food_item, quantity, user_context)
+            return self._get_fallback_nutrition(food_item, quantity)
 
     def _get_fallback_nutrition(self, food_item: str, quantity: str) -> Dict[str, Any]:
         """Get fallback nutrition data when AI analysis fails"""
