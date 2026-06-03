@@ -19,6 +19,7 @@ from api.sleep import router as sleep_router
 from api.weight import router as weight_router
 from api.supplements import router as supplements_router
 from api.periods import router as periods_router
+from api.exercise import router as exercise_router
 from api.weekly_context import router as weekly_router
 from api.activity_check import router as activity_check_router
 from api.meal_suggestions import router as suggestions_router
@@ -118,6 +119,7 @@ app.include_router(sleep_router, prefix="/api/health", tags=["sleep"])
 app.include_router(weight_router, prefix="/api/health", tags=["weight"])
 app.include_router(supplements_router, prefix="/api/health", tags=["supplements"])
 app.include_router(periods_router, prefix="/api/health", tags=["period"])
+app.include_router(exercise_router, prefix="/api/health", tags=["exercise"])
 app.include_router(chat.router, prefix="/api/health")
 app.include_router(weekly_router, prefix="/api/health")
 app.include_router(activity_check_router, prefix="/api/health")
