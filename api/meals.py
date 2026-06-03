@@ -1146,3 +1146,100 @@ async def get_micronutrient_summary(
     except Exception as e:
         print(f"❌ Error getting micronutrient summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/history/{user_id}")
+async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = None, tz_offset: int = Depends(get_timezone_offset)):
+    """Get meal history for Flutter app"""
+    try:
+        print(f"🍽️ Getting meal history for user: {user_id}, limit: {limit}, date: {date}")
+
+        supabase_service = get_supabase_service()
+
+        if date:
+            date_only = str(get_user_date(date, tz_offset))
+            meals = await supabase_service.get_user_meals_by_date(user_id, date_only)
+        else:
+            meals = await supabase_service.get_user_meals(user_id, limit=limit)
+
+        # Helper function to capitalize meal types
+        def capitalize_meal_type(meal_type):
+            if not meal_type:
+                return "Snack"
+            meal_type = str(meal_type).lower()
+            if meal_type == "lunch":
+                return "Lunch"
+            elif meal_type == "breakfast":
+                return "Breakfast"
+            elif meal_type == "dinner":
+                return "Dinner"
+            else:
+                return "Snack"
+
+        # Format meals for Flutter with proper field names
+        formatted_meals = []
+        for meal in meals:
+            formatted_meal = {
+                "id": str(meal.get('id', '')),
+                "food_item": str(meal.get('food_item', '')),  # This is what Flutter expects!
+                "name": str(meal.get('food_item', '')),
+                "quantity": str(meal.get('quantity', '')),
+                "meal_type": capitalize_meal_type(meal.get('meal_type')),
+                "calories": float(meal.get('calories', 0)),
+                "protein": float(meal.get('protein_g', 0)),
+                "carbs": float(meal.get('carbs_g', 0)),
+                "fat": float(meal.get('fat_g', 0)),
+                "protein_g": float(meal.get('protein_g', 0)),
+                "carbs_g": float(meal.get('carbs_g', 0)),
+                "fat_g": float(meal.get('fat_g', 0)),
+                "fiber": float(meal.get('fiber_g', 0)),
+                "sugar": float(meal.get('sugar_g', 0)),
+                "sodium": float(meal.get('sodium_mg', 0)),
+                "logged_at": str(meal.get('logged_at', meal.get('meal_date', ''))),
+                "meal_date": str(meal.get('meal_date', '')),
+                "nutrition_notes": str(meal.get('nutrition_data', {}).get('nutrition_notes', '')),
+                "healthiness_score": int(meal.get('nutrition_data', {}).get('healthiness_score', 7)),
+                "suggestions": str(meal.get('nutrition_data', {}).get('suggestions', ''))
+            }
+            formatted_meals.append(formatted_meal)
+
+        return {
+            "success": True,
+            "meals": formatted_meals,
+            "total_count": len(formatted_meals)
+        }
+
+    except Exception as e:
+        print(f"❌ Error getting Flutter meal history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/{meal_id}")
+async def update_meal_flutter(meal_id: str, meal_data: dict):
+    """Update meal entry for Flutter app"""
+    try:
+        print(f"📝 Updating meal {meal_id}")
+
+        supabase_service = get_supabase_service()
+
+        # Prepare update data
+        update_data = {
+            'food_item': meal_data.get('food_item'),
+            'quantity': meal_data.get('quantity'),
+            'calories': meal_data.get('calories'),
+            'protein_g': meal_data.get('protein_g'),
+            'carbs_g': meal_data.get('carbs_g'),
+            'fat_g': meal_data.get('fat_g'),
+        }
+
+        # Update in database
+        updated = await supabase_service.update_meal(meal_id, update_data)
+
+        return {
+            "success": True,
+            "message": "Meal updated successfully",
+            "meal": updated
+        }
+
+    except Exception as e:
+        print(f"❌ Error updating meal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
