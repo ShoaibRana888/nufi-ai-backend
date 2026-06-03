@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from utils.keep_alive import start_keep_alive
 from services.supabase_service import init_supabase_service
-from api import users, flutter_compat
+from api import users, auth
 from api import fcm
 from api import chat
 from api import debug
@@ -21,6 +21,7 @@ from api.supplements import router as supplements_router
 from api.periods import router as periods_router
 from api.exercise import router as exercise_router
 from api.daily_summary import router as daily_summary_router
+from api.frameworks import router as frameworks_router
 from api.weekly_context import router as weekly_router
 from api.activity_check import router as activity_check_router
 from api.meal_suggestions import router as suggestions_router
@@ -113,7 +114,7 @@ app.add_middleware(
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(fcm.router)
 app.include_router(meals_router, prefix="/api/health/meals", tags=["meals"])
-app.include_router(flutter_compat.router, prefix="/api/health", tags=["flutter-health"])
+app.include_router(auth.router, prefix="/api/health", tags=["auth"])
 app.include_router(water_router, prefix="/api/health", tags=["water"])
 app.include_router(steps_router, prefix="/api/health", tags=["steps"])
 app.include_router(sleep_router, prefix="/api/health", tags=["sleep"])
@@ -122,6 +123,7 @@ app.include_router(supplements_router, prefix="/api/health", tags=["supplements"
 app.include_router(periods_router, prefix="/api/health", tags=["period"])
 app.include_router(exercise_router, prefix="/api/health", tags=["exercise"])
 app.include_router(daily_summary_router, prefix="/api/health", tags=["daily-summary"])
+app.include_router(frameworks_router, prefix="/api/health", tags=["frameworks"])
 app.include_router(chat.router, prefix="/api/health")
 app.include_router(weekly_router, prefix="/api/health")
 app.include_router(activity_check_router, prefix="/api/health")

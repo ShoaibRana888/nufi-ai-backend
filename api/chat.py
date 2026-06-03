@@ -1,9 +1,11 @@
 # api/chat.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from services.supabase_service import get_supabase_service
 from services.chat_context_manager import get_context_manager
+from services.chat_service import get_chat_service
+from utils.timezone_utils import get_timezone_offset, get_user_now
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -229,6 +231,143 @@ async def daily_context_reset(user_id: str):
             "date": str(datetime.now().date()),
             "message": "Daily context ready"
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("", response_model=dict)
+async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offset)):
+    """Enhanced health chat with OpenAI integration"""
+    import time
+    start_time = time.time()
+
+    try:
+        print(f"💬 Chat request received at {time.time()}")
+        chat_service = get_chat_service()
+        user_id = request.get('user_id')
+        message = request.get('message')
+
+        if not user_id or not message:
+            raise HTTPException(status_code=400, detail="user_id and message are required")
+
+        print(f"💬 Chat request from user: {user_id}, message: {message[:50]}...")
+        print(f"⏱️ Time before generate_chat_response: {time.time() - start_time:.2f}s")
+
+        response = await chat_service.generate_chat_response(user_id, message)
+
+        print(f"⏱️ Total time: {time.time() - start_time:.2f}s")
+
+        return {
+            "success": True,
+            "response": response,
+            "timestamp": get_user_now(tz_offset).isoformat()
+        }
+    except Exception as e:
+        print(f"❌ Error in health chat after {time.time() - start_time:.2f}s: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "response": "I'm having trouble connecting. Please check your connection and try again.",
+            "error": str(e)
+        }
+
+@router.get("/history/{user_id}")
+async def get_chat_history(user_id: str):
+    """Get user's chat history"""
+    try:
+        supabase_service = get_supabase_service()
+        history = await supabase_service.get_chat_messages(user_id)
+
+        return {
+            "success": True,
+            "messages": history,
+            "count": len(history)
+        }
+    except Exception as e:
+        print(f"❌ Error getting chat history: {e}")
+        return {"success": False, "messages": [], "count": 0}
+
+@router.delete("/history/{user_id}")
+async def clear_chat_history(user_id: str):
+    """Clear user's chat history"""
+    try:
+        supabase_service = get_supabase_service()
+        success = await supabase_service.clear_user_conversation(user_id)
+
+        return {
+            "success": success,
+            "message": "Chat history cleared" if success else "Failed to clear chat history"
+        }
+    except Exception as e:
+        print(f"❌ Error clearing chat history: {e}")
+        return {"success": False, "message": "Failed to clear chat history"}
+
+@router.get("/messages/{user_id}")
+async def get_chat_messages(user_id: str, limit: int = 50):
+    """Get chat messages for a user"""
+    try:
+        supabase_service = get_supabase_service()
+        messages = supabase_service.get_chat_messages(user_id, limit)
+
+        return {
+            "success": True,
+            "messages": messages,
+            "count": len(messages)
+        }
+    except Exception as e:
+        print(f"Error getting chat messages: {e}")
+        return {"success": False, "messages": [], "count": 0}
+
+@router.delete("/messages/{user_id}")
+async def clear_chat_messages(user_id: str):
+    """Clear chat messages for a user"""
+    try:
+        supabase_service = get_supabase_service()
+        success = await supabase_service.clear_chat_messages(user_id)
+
+        return {
+            "success": success,
+            "message": "Messages cleared" if success else "Failed to clear messages"
+        }
+    except Exception as e:
+        print(f"Error clearing chat messages: {e}")
+        return {"success": False, "message": "Failed to clear messages"}
+
+@router.get("/sessions/{user_id}")
+async def get_user_chat_sessions(user_id: str):
+    """Get all chat sessions for a user"""
+    try:
+        supabase_service = get_supabase_service()
+
+        response = supabase_service.client.table("chat_sessions")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .order("created_at", desc=True)\
+            .execute()
+
+        return {
+            "success": True,
+            "sessions": response.data or [],
+            "count": len(response.data or [])
+        }
+    except Exception as e:
+        print(f"Error getting chat sessions: {e}")
+        return {"success": False, "sessions": [], "count": 0}
+
+@router.get("/messages/{user_id}/{session_id}")
+async def get_session_messages(user_id: str, session_id: str):
+    """Get messages for a specific session"""
+    try:
+        supabase_service = get_supabase_service()
+        messages = await supabase_service.get_chat_messages(user_id, session_id=session_id)
+
+        return {
+            "success": True,
+            "messages": messages,
+            "count": len(messages)
+        }
+    except Exception as e:
+        print(f"Error getting session messages: {e}")
+        return {"success": False, "messages": [], "count": 0}
