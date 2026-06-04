@@ -33,7 +33,12 @@ class WeeklyContextManager:
         
         week_start, week_end = self.get_week_boundaries(target_date)
         week_number, year = self.get_week_number(target_date)
-        
+
+        # The current (ongoing) week keeps accumulating data throughout the week,
+        # so a cached snapshot would be stale. Always rebuild it from live data.
+        # Past, completed weeks are safe to serve from cache.
+        is_current_week = week_end >= datetime.now().date()
+
         try:
             # Check if weekly context exists
             response = self.supabase_service.client.table('weekly_contexts')\
@@ -41,8 +46,8 @@ class WeeklyContextManager:
                 .eq('user_id', user_id)\
                 .eq('week_start_date', str(week_start))\
                 .execute()
-            
-            if response.data:
+
+            if response.data and not is_current_week:
                 return {
                     'success': True,
                     'weekly_context': response.data[0]['context_data'],
@@ -51,8 +56,17 @@ class WeeklyContextManager:
                     'week_end': str(week_end),
                     'version': response.data[0]['version']
                 }
-            
-            # Create new weekly context
+
+            # For the current week, drop any stale cached row first so we rebuild
+            # cleanly from live daily data (avoids duplicate rows on re-aggregation).
+            if response.data and is_current_week:
+                self.supabase_service.client.table('weekly_contexts')\
+                    .delete()\
+                    .eq('user_id', user_id)\
+                    .eq('week_start_date', str(week_start))\
+                    .execute()
+
+            # Create the weekly context from live daily data.
             return await self.create_weekly_context(
                 user_id, week_start, week_end, week_number, year
             )
