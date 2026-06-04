@@ -453,7 +453,38 @@ class WeeklyContextManager:
                     print(f"   ✅ Steps processed: {step_count} steps")
             except Exception as e:
                 print(f"   ❌ Error fetching steps: {e}")
-            
+
+            # Fetch weight
+            try:
+                weight = await self.supabase_service.get_weight_by_date(user_id, current_date)
+                if weight and weight.get('weight'):
+                    day_has_data = True
+                    weight_kg = float(weight.get('weight', 0) or 0)
+                    data['weight_measurements'].append({
+                        'date': date_str,
+                        'weight': weight_kg
+                    })
+                    print(f"   ✅ Weight processed: {weight_kg}kg")
+            except Exception as e:
+                print(f"   ❌ Error fetching weight: {e}")
+
+            # Fetch supplements
+            try:
+                supplements = await self.supabase_service.get_supplement_status_by_date(user_id, current_date)
+                if supplements:
+                    day_has_data = True
+                    taken_count = sum(1 for s in supplements.values() if s.get('taken'))
+                    total_count = len(supplements)
+                    for name in supplements.keys():
+                        data['supplements_list'].add(name)
+                    data['daily_supplements'][date_str] = {
+                        'taken': taken_count,
+                        'total': total_count
+                    }
+                    print(f"   ✅ Supplements processed: {taken_count}/{total_count} taken")
+            except Exception as e:
+                print(f"   ❌ Error fetching supplements: {e}")
+
             # Track days with data
             if day_has_data:
                 days_with_any_data.add(date_str)
@@ -479,27 +510,42 @@ class WeeklyContextManager:
         
         # Convert supplements set to list
         data['supplements_list'] = list(data['supplements_list'])
-        
+
+        # Weight progress: first vs last measurement of the week (chronological)
+        if data['weight_measurements']:
+            sorted_weights = sorted(data['weight_measurements'], key=lambda m: m['date'])
+            data['week_start_weight'] = sorted_weights[0]['weight']
+            data['week_end_weight'] = sorted_weights[-1]['weight']
+            data['weight_change'] = round(
+                sorted_weights[-1]['weight'] - sorted_weights[0]['weight'], 1
+            )
+
         data['calorie_goal_achievement'] = 0
         data['water_goal_achievement'] = 0
         data['step_goal_achievement'] = 0
         data['workout_goal_achievement'] = 0
         data['supplement_adherence'] = 0
-        
+
         # If we have days with data, calculate achievements
         if data['days_with_data'] > 0:
             # Calorie goal achievement (percentage of days tracked)
             data['calorie_goal_achievement'] = round((data['days_with_data'] / 7) * 100)
-            
+
             # Water goal achievement
             data['water_goal_achievement'] = round((data['days_water_goal_met'] / 7) * 100)
-            
-            # Step goal achievement  
+
+            # Step goal achievement
             data['step_goal_achievement'] = round((data['days_step_goal_met'] / 7) * 100)
-            
+
             # Workout goal achievement (3+ workouts = 100%)
             workout_goal = 3
             data['workout_goal_achievement'] = min(100, round((data['total_workouts'] / workout_goal) * 100))
+
+            # Supplement adherence: taken vs scheduled across all logged days
+            total_scheduled = sum(d['total'] for d in data['daily_supplements'].values())
+            total_taken = sum(d['taken'] for d in data['daily_supplements'].values())
+            if total_scheduled > 0:
+                data['supplement_adherence'] = round((total_taken / total_scheduled) * 100)
         
         # Update the final print to show these new fields
         print(f"\n📊 WEEKLY AGGREGATION COMPLETE:")
