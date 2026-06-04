@@ -899,7 +899,7 @@ class ChatContextManager:
                     'context_data': context,
                     'version': version,
                     'last_updated': datetime.now().isoformat()
-                })\
+                }, on_conflict='user_id,date')\
                 .execute()
         except Exception as e:
             print(f"⚠️ Error saving context: {e}")

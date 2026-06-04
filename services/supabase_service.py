@@ -852,6 +852,31 @@ class SupabaseService:
             print(f"❌ Error getting weight history: {e}")
             return []
 
+    async def get_weight_entries(
+        self,
+        user_id: str,
+        start_date: str = None,
+        end_date: str = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Get weight entries for a user, optionally filtered by a date range"""
+        try:
+            query = self.client.table('weight_entries')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('date', desc=False)
+
+            if start_date:
+                query = query.gte('date', start_date)
+            if end_date:
+                query = query.lte('date', end_date)
+
+            response = query.limit(limit).execute()
+            return response.data or []
+        except Exception as e:
+            print(f"❌ Error getting weight entries: {e}")
+            return []
+
     async def get_latest_weight(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get the latest weight entry for a user"""
         try:
