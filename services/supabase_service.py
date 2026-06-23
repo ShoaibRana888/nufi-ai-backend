@@ -252,17 +252,24 @@ class SupabaseService:
             print(f"❌ Error getting daily nutrition range: {e}")
             return []
         
-    async def get_meals_by_date(self, user_id: str, date: date) -> List[Dict[str, Any]]:
-        """Get all meals for a specific date"""
+    async def get_meals_by_date(self, user_id: str, date: date, shared_only: bool = False) -> List[Dict[str, Any]]:
+        """Get all meals for a specific date.
+
+        Pass shared_only=True for AI/chat context reads so meals the user has
+        hidden (shared_with_chat=False) are excluded. Leave False for the
+        user's own views (history, reminders) which should see everything.
+        """
         try:
             next_day = date + timedelta(days=1)
-            
-            response = self.client.table('meal_entries')\
+
+            query = self.client.table('meal_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .gte('meal_date', str(date))\
-                .lt('meal_date', str(next_day))\
-                .execute()
+                .lt('meal_date', str(next_day))
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
+            response = query.execute()
             
             meals = response.data if response.data else []
             print(f"✅ Found {len(meals)} meals for {date}")
@@ -497,28 +504,23 @@ class SupabaseService:
             print(f"❌ Error getting water entry by date: {e}")
             return None
         
-    async def get_water_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
-        """Get water intake for a specific date - FIXED VERSION"""
+    async def get_water_by_date(self, user_id: str, date: date, shared_only: bool = False) -> Optional[Dict[str, Any]]:
+        """Get water intake for a specific date.
+
+        Pass shared_only=True for AI/chat context reads to exclude days the
+        user has hidden (shared_with_chat=False).
+        """
         try:
             print(f"🔍 Getting water for user: {user_id}, date: {date}")
-            
-            # ✅ FIX: Check if your table uses 'date' or 'log_date' column
-            # I'll provide both versions:
-            
-            # VERSION A: If column is called 'date'
-            response = self.client.table('daily_water')\
+
+            query = self.client.table('daily_water')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('date', str(date))\
-                .execute()
-            
-            # VERSION B: If column is called 'log_date' (uncomment if needed)
-            # response = self.client.table('daily_water')\
-            #     .select('*')\
-            #     .eq('user_id', user_id)\
-            #     .eq('log_date', str(date))\
-            #     .execute()
-            
+                .eq('date', str(date))
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
+            response = query.execute()
+
             if response.data:
                 entry = response.data[0]
                 print(f"✅ Found water entry for {date}: {entry.get('glasses_consumed')} glasses")
@@ -777,16 +779,22 @@ class SupabaseService:
             print(f"❌ Error getting steps in range: {e}")
             return []
         
-    async def get_steps_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
-        """Get step count for a specific date - FIXED VERSION"""
+    async def get_steps_by_date(self, user_id: str, date: date, shared_only: bool = False) -> Optional[Dict[str, Any]]:
+        """Get step count for a specific date.
+
+        Pass shared_only=True for AI/chat context reads to exclude days the
+        user has hidden (shared_with_chat=False).
+        """
         try:
             print(f"🔍 Getting steps for user: {user_id}, date: {date}")
-            
-            response = self.client.table('daily_steps')\
+
+            query = self.client.table('daily_steps')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('date', str(date))\
-                .execute()
+                .eq('date', str(date))
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
+            response = query.execute()
             
             if response.data:
                 entry = response.data[0]
@@ -857,9 +865,14 @@ class SupabaseService:
         user_id: str,
         start_date: str = None,
         end_date: str = None,
-        limit: int = 50
+        limit: int = 50,
+        shared_only: bool = False
     ) -> List[Dict[str, Any]]:
-        """Get weight entries for a user, optionally filtered by a date range"""
+        """Get weight entries for a user, optionally filtered by a date range.
+
+        Pass shared_only=True for AI/chat context reads to exclude entries the
+        user has hidden (shared_with_chat=False).
+        """
         try:
             query = self.client.table('weight_entries')\
                 .select('*')\
@@ -870,6 +883,8 @@ class SupabaseService:
                 query = query.gte('date', start_date)
             if end_date:
                 query = query.lte('date', end_date)
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
 
             response = query.limit(limit).execute()
             return response.data or []
@@ -934,18 +949,24 @@ class SupabaseService:
             print(f"❌ Error getting weight entry by ID: {e}")
             return None
         
-    async def get_weight_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
-        """Get weight entry for a specific date - FIXED VERSION"""
+    async def get_weight_by_date(self, user_id: str, date: date, shared_only: bool = False) -> Optional[Dict[str, Any]]:
+        """Get weight entry for a specific date.
+
+        Pass shared_only=True for AI/chat context reads to exclude entries the
+        user has hidden (shared_with_chat=False).
+        """
         try:
             print(f"🔍 Getting weight for user: {user_id}, date: {date}")
-            
-            response = self.client.table('weight_entries')\
+
+            query = self.client.table('weight_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(date))\
                 .order('date', desc=True)\
-                .limit(1)\
-                .execute()
+                .limit(1)
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
+            response = query.execute()
             
             if response.data:
                 entry = response.data[0]
@@ -1144,17 +1165,23 @@ class SupabaseService:
             print(f"❌ Error getting sleep entry by date: {e}")
             return None
         
-    async def get_sleep_by_date(self, user_id: str, date: date) -> Optional[Dict[str, Any]]:
-        """Get sleep entry for a specific date"""
+    async def get_sleep_by_date(self, user_id: str, date: date, shared_only: bool = False) -> Optional[Dict[str, Any]]:
+        """Get sleep entry for a specific date.
+
+        Pass shared_only=True for AI/chat context reads to exclude entries the
+        user has hidden (shared_with_chat=False).
+        """
         try:
             next_day = date + timedelta(days=1)
-            
-            response = self.client.table('sleep_entries')\
+
+            query = self.client.table('sleep_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .gte('date', str(date))\
-                .lt('date', str(next_day))\
-                .execute()
+                .lt('date', str(next_day))
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
+            response = query.execute()
             
             if response.data:
                 print(f"✅ Found sleep entry for {date}: {response.data[0].get('total_hours')}h")
@@ -1300,16 +1327,22 @@ class SupabaseService:
             print(f"❌ Error getting supplement log by date: {e}")
             return None
 
-    async def get_supplement_status_by_date(self, user_id: str, entry_date: date) -> Dict[str, Any]:
-        """Get supplement status for all supplements on a specific date - FIXED VERSION"""
+    async def get_supplement_status_by_date(self, user_id: str, entry_date: date, shared_only: bool = False) -> Dict[str, Any]:
+        """Get supplement status for all supplements on a specific date.
+
+        Pass shared_only=True for AI/chat context reads to exclude logs the
+        user has hidden (shared_with_chat=False).
+        """
         try:
             print(f"🔍 Getting supplements for user: {user_id}, date: {entry_date}")
-            
-            response = self.client.table('supplement_logs')\
+
+            query = self.client.table('supplement_logs')\
                 .select('supplement_name, taken')\
                 .eq('user_id', user_id)\
-                .eq('date', str(entry_date))\
-                .execute()
+                .eq('date', str(entry_date))
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
+            response = query.execute()
             
             status = {}
             if response.data:
@@ -1473,17 +1506,23 @@ class SupabaseService:
             print(f"Error getting exercise: {e}")
             return None
         
-    async def get_exercises_by_date(self, user_id: str, date: date) -> List[Dict[str, Any]]:
-        """Get all exercises for a specific date"""
+    async def get_exercises_by_date(self, user_id: str, date: date, shared_only: bool = False) -> List[Dict[str, Any]]:
+        """Get all exercises for a specific date.
+
+        Pass shared_only=True for AI/chat context reads to exclude entries the
+        user has hidden (shared_with_chat=False).
+        """
         try:
             next_day = date + timedelta(days=1)
-            
-            response = self.client.table('exercise_logs')\
+
+            query = self.client.table('exercise_logs')\
                 .select('*')\
                 .eq('user_id', user_id)\
                 .gte('exercise_date', str(date))\
-                .lt('exercise_date', str(next_day))\
-                .execute()
+                .lt('exercise_date', str(next_day))
+            if shared_only:
+                query = query.eq('shared_with_chat', True)
+            response = query.execute()
             
             exercises = response.data or []
             print(f"✅ Found {len(exercises)} exercises for {date}")

@@ -292,7 +292,7 @@ class WeeklyContextManager:
             
             # Fetch meals
             try:
-                meals = await self.supabase_service.get_meals_by_date(user_id, current_date)
+                meals = await self.supabase_service.get_meals_by_date(user_id, current_date, shared_only=True)
                 print(f"   📊 Raw meals returned: {len(meals)}")
                 
                 if meals and len(meals) > 0:
@@ -338,7 +338,7 @@ class WeeklyContextManager:
             
             # Fetch exercises
             try:
-                exercises = await self.supabase_service.get_exercises_by_date(user_id, current_date)
+                exercises = await self.supabase_service.get_exercises_by_date(user_id, current_date, shared_only=True)
                 print(f"   📊 Raw exercises returned: {len(exercises)}")
                 
                 if exercises and len(exercises) > 0:
@@ -385,7 +385,7 @@ class WeeklyContextManager:
             
             # Fetch sleep
             try:
-                sleep = await self.supabase_service.get_sleep_by_date(user_id, current_date)
+                sleep = await self.supabase_service.get_sleep_by_date(user_id, current_date, shared_only=True)
                 print(f"   📊 Sleep returned: {sleep is not None}")
                 
                 if sleep and sleep.get('total_hours'):
@@ -417,7 +417,7 @@ class WeeklyContextManager:
             
             # Fetch water
             try:
-                water = await self.supabase_service.get_water_by_date(user_id, current_date)
+                water = await self.supabase_service.get_water_by_date(user_id, current_date, shared_only=True)
                 if water and water.get('glasses_consumed'):
                     day_has_data = True
                     glasses = int(water.get('glasses_consumed', 0) or 0)
@@ -433,7 +433,7 @@ class WeeklyContextManager:
             
             # Fetch steps
             try:
-                steps = await self.supabase_service.get_steps_by_date(user_id, current_date)
+                steps = await self.supabase_service.get_steps_by_date(user_id, current_date, shared_only=True)
                 if steps and steps.get('steps'):
                     day_has_data = True
                     step_count = int(steps.get('steps', 0) or 0)
@@ -456,7 +456,7 @@ class WeeklyContextManager:
 
             # Fetch weight
             try:
-                weight = await self.supabase_service.get_weight_by_date(user_id, current_date)
+                weight = await self.supabase_service.get_weight_by_date(user_id, current_date, shared_only=True)
                 if weight and weight.get('weight'):
                     day_has_data = True
                     weight_kg = float(weight.get('weight', 0) or 0)
@@ -470,7 +470,7 @@ class WeeklyContextManager:
 
             # Fetch supplements
             try:
-                supplements = await self.supabase_service.get_supplement_status_by_date(user_id, current_date)
+                supplements = await self.supabase_service.get_supplement_status_by_date(user_id, current_date, shared_only=True)
                 if supplements:
                     day_has_data = True
                     taken_count = sum(1 for s in supplements.values() if s.get('taken'))

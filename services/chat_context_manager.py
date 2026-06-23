@@ -333,8 +333,9 @@ class ChatContextManager:
                 .eq('user_id', user_id)\
                 .gte('meal_date', f"{target_date}T00:00:00")\
                 .lte('meal_date', f"{target_date}T23:59:59")\
+                .eq('shared_with_chat', True)\
                 .execute()
-            
+
             meals = meals_response.data if meals_response.data else []
             
             # Get exercises for today  
@@ -343,8 +344,9 @@ class ChatContextManager:
                 .eq('user_id', user_id)\
                 .gte('exercise_date', f"{target_date}T00:00:00")\
                 .lte('exercise_date', f"{target_date}T23:59:59")\
+                .eq('shared_with_chat', True)\
                 .execute()
-            
+
             exercises = exercise_response.data if exercise_response.data else []
             
             # Get water for today
@@ -352,8 +354,9 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
-            
+
             water = water_response.data[0] if water_response.data else {}
             
             # Get steps for today
@@ -361,8 +364,9 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
-            
+
             steps = steps_response.data[0] if steps_response.data else {}
             
             # Calculate totals from meals
@@ -622,6 +626,7 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('meal_date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['meals'] = meals_response.data if meals_response.data else []
             print(f"  📋 Found {len(activities['meals'])} meals")
@@ -635,6 +640,7 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['water'] = water_response.data[0] if water_response.data else {}
             print(f"  💧 Water: {activities['water'].get('glasses_consumed', 0)} glasses")
@@ -648,6 +654,7 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('exercise_date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['exercise'] = exercise_response.data if exercise_response.data else []
             print(f"  💪 Found {len(activities['exercise'])} exercises")
@@ -661,6 +668,7 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['steps'] = steps_response.data[0] if steps_response.data else {}
             print(f"  👣 Steps: {activities['steps'].get('steps', 0)}")
@@ -674,6 +682,7 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
             print(f"  😴 Sleep: {activities['sleep'].get('total_hours', 0)} hours")
@@ -687,6 +696,7 @@ class ChatContextManager:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['weight'] = weight_response.data[0] if weight_response.data else {}
             print(f"  ⚖️ Weight: {activities['weight'].get('weight', 'Not logged')} kg")
@@ -697,7 +707,7 @@ class ChatContextManager:
         try:
             # Get supplements
             activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(
-                user_id, target_date
+                user_id, target_date, shared_only=True
             )
             print(f"  💊 Supplements logged")
         except Exception as e:
@@ -705,11 +715,17 @@ class ChatContextManager:
             activities['supplements'] = {}
         
         try:
-            # Get period data (for female users)
+            # Get period data (for female users). period_entries has no `date`
+            # column — it spans start_date..end_date — so match the period that
+            # is active on target_date: started on/before it and either still
+            # ongoing (no end_date) or ending on/after it.
+            target_str = str(target_date)
             period_response = self.supabase_service.client.table('period_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
+                .lte('start_date', target_str)\
+                .or_(f'end_date.is.null,end_date.gte.{target_str}')\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['period'] = period_response.data[0] if period_response.data else {}
         except Exception as e:
@@ -766,7 +782,7 @@ class ChatContextManager:
                 check_date = start_date + timedelta(days=i)
                 
                 # Get meals for calorie average
-                meals = await self.supabase_service.get_meals_by_date(user_id, check_date)
+                meals = await self.supabase_service.get_meals_by_date(user_id, check_date, shared_only=True)
                 if meals:
                     daily_calories = sum(m.get('calories', 0) for m in meals)
                     if daily_calories > 0:
@@ -774,18 +790,18 @@ class ChatContextManager:
                         days_with_meals += 1
                 
                 # Get sleep
-                sleep = await self.supabase_service.get_sleep_by_date(user_id, check_date)
+                sleep = await self.supabase_service.get_sleep_by_date(user_id, check_date, shared_only=True)
                 if sleep and sleep.get('total_hours'):
                     total_sleep += sleep['total_hours']
                     days_with_sleep += 1
                 
                 # Get water
-                water = await self.supabase_service.get_water_by_date(user_id, check_date)
+                water = await self.supabase_service.get_water_by_date(user_id, check_date, shared_only=True)
                 if water and water.get('glasses_consumed', 0) > 0:
                     days_with_water += 1
                 
                 # Get exercise
-                exercises = await self.supabase_service.get_exercises_by_date(user_id, check_date)
+                exercises = await self.supabase_service.get_exercises_by_date(user_id, check_date, shared_only=True)
                 if exercises:
                     workout_days.add(str(check_date))
             
@@ -797,9 +813,10 @@ class ChatContextManager:
             
             # Get weight trend
             weight_entries = await self.supabase_service.get_weight_entries(
-                user_id, 
+                user_id,
                 start_date=str(start_date),
-                end_date=str(end_date)
+                end_date=str(end_date),
+                shared_only=True
             )
             summary['weight_trend'] = self._calculate_weight_trend(weight_entries)
             

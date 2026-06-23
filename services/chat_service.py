@@ -84,13 +84,11 @@ class HealthChatService:
             # Clearly off-topic
             print(f"🚫 REJECTED - Off-topic: {message[:100]}")
             return False, "I'm your health and fitness coach! I can help with workouts, nutrition, and reaching your goals. What would you like to know about those topics?"
-        
-        if not has_health_keyword and len(message.split()) > 5:
-            # Longer message with no health keywords - probably off topic
-            print(f"🚫 REJECTED - No health keywords: {message[:100]}")
-            return False, "I'm your health and fitness coach! I can help with workouts, nutrition, and reaching your goals. What would you like to know about those topics?"
-        
-        # Default: allow it (system prompt will handle edge cases)
+
+        # Default: allow it. The system prompt enforces health-only scope and
+        # politely redirects genuine off-topic edge cases, so we no longer
+        # hard-reject keyword-free messages (that wrongly blocked valid
+        # health questions phrased without a hardcoded keyword).
         return True, ""
     
     def _add_safety_disclaimers(self, response: str, original_message: str) -> str:
@@ -158,6 +156,7 @@ class HealthChatService:
                 .eq('user_id', user_id)\
                 .gte('meal_date', f"{target_date}T00:00:00")\
                 .lte('meal_date', f"{target_date}T23:59:59")\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['meals'] = meals_response.data if meals_response.data else []
         except Exception as e:
@@ -170,6 +169,7 @@ class HealthChatService:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['water'] = water_response.data[0] if water_response.data else {}
         except Exception as e:
@@ -182,6 +182,7 @@ class HealthChatService:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('exercise_date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['exercise'] = exercise_response.data if exercise_response.data else []
         except Exception as e:
@@ -194,6 +195,7 @@ class HealthChatService:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
         except Exception as e:
@@ -202,7 +204,7 @@ class HealthChatService:
         
         try:
             # Get today's supplements
-            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(user_id, target_date)
+            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(user_id, target_date, shared_only=True)
         except Exception as e:
             print(f"⚠️ Error fetching supplements: {e}")
             activities['supplements'] = {}
@@ -213,6 +215,7 @@ class HealthChatService:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['weight'] = weight_response.data[0] if weight_response.data else {}
         except Exception as e:
@@ -225,6 +228,7 @@ class HealthChatService:
                 .select('*')\
                 .eq('user_id', user_id)\
                 .eq('date', str(target_date))\
+                .eq('shared_with_chat', True)\
                 .execute()
             activities['steps'] = steps_response.data[0] if steps_response.data else {}
         except Exception as e:
@@ -252,7 +256,7 @@ class HealthChatService:
                 # Sum up meals
                 meals = activities.get('meals', [])
                 for meal in meals:
-                    total_calories += meal.get('total_calories', 0)
+                    total_calories += meal.get('calories', 0)
                 
                 # Count workouts
                 if activities.get('exercise'):
@@ -348,10 +352,10 @@ class HealthChatService:
             
             # Calculate meal totals
             meals = activities.get('meals', [])
-            total_calories = sum(meal.get('total_calories', 0) for meal in meals)
-            total_protein = sum(meal.get('protein', 0) for meal in meals)
-            total_carbs = sum(meal.get('carbs', 0) for meal in meals)
-            total_fat = sum(meal.get('fat', 0) for meal in meals)
+            total_calories = sum(meal.get('calories', 0) for meal in meals)
+            total_protein = sum(meal.get('protein_g', 0) for meal in meals)
+            total_carbs = sum(meal.get('carbs_g', 0) for meal in meals)
+            total_fat = sum(meal.get('fat_g', 0) for meal in meals)
             
             # Calculate exercise totals
             exercises = activities.get('exercise', [])
@@ -556,22 +560,20 @@ class HealthChatService:
         """Create enhanced system prompt with guardrails and all activity data"""
         user_profile = context.get('user_profile', {})
         today_progress = context.get('today_progress', {})
-        
-        # Check which structure we have
-        if 'totals' in today_progress:
-            # Enhanced context structure
-            meals_logged = today_progress.get('meals_logged', 0)
-            total_calories = today_progress.get('totals', {}).get('calories', 0)
-            total_protein = today_progress.get('totals', {}).get('protein', 0)
-            total_carbs = today_progress.get('totals', {}).get('carbs', 0)
-            total_fat = today_progress.get('totals', {}).get('fat', 0)
-        else:
-            # Regular context structure
-            meals_logged = today_progress.get('meals_logged', 0)
-            total_calories = today_progress.get('total_calories', 0)
-            total_protein = today_progress.get('total_protein', 0)
-            total_carbs = today_progress.get('total_carbs', 0)
-            total_fat = today_progress.get('total_fat', 0)
+
+        # Canonical macro totals live under today_progress['totals']. Some
+        # fallback context builders only emit flat 'total_*' keys, so read
+        # the canonical shape first and defensively fall back per-field.
+        totals = today_progress.get('totals', {})
+
+        def _macro(key: str) -> Any:
+            return totals.get(key, today_progress.get(f'total_{key}', 0))
+
+        meals_logged = today_progress.get('meals_logged', 0)
+        total_calories = _macro('calories')
+        total_protein = _macro('protein')
+        total_carbs = _macro('carbs')
+        total_fat = _macro('fat')
         
         water_glasses = today_progress.get('water_glasses', 0)
         steps = today_progress.get('steps', 0)

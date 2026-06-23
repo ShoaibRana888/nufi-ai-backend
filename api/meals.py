@@ -1199,7 +1199,8 @@ async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = No
                 "meal_date": str(meal.get('meal_date', '')),
                 "nutrition_notes": str(meal.get('nutrition_data', {}).get('nutrition_notes', '')),
                 "healthiness_score": int(meal.get('nutrition_data', {}).get('healthiness_score', 7)),
-                "suggestions": str(meal.get('nutrition_data', {}).get('suggestions', ''))
+                "suggestions": str(meal.get('nutrition_data', {}).get('suggestions', '')),
+                "shared_with_chat": meal.get('shared_with_chat', True),
             }
             formatted_meals.append(formatted_meal)
 
