@@ -111,7 +111,8 @@ async def get_sleep_history(user_id: str, limit: int = 30):
                 'sleep_issues': entry.get('sleep_issues', []),
                 'notes': entry.get('notes'),
                 'created_at': entry.get('created_at'),
-                'updated_at': entry.get('updated_at')
+                'updated_at': entry.get('updated_at'),
+                'shared_with_chat': entry.get('shared_with_chat', True),
             }
             formatted_entries.append(formatted_entry)
 
