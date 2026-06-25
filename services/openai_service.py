@@ -68,7 +68,7 @@ class OpenAIService:
             """
             
             response = await self.client.chat.completions.create(
-                model="gpt-5-mini",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=1000
