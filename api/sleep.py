@@ -1,6 +1,6 @@
 # api/sleep.py
 from fastapi import APIRouter, HTTPException, Depends
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 from models.sleep_schemas import SleepEntryCreate, SleepEntryUpdate
@@ -9,6 +9,25 @@ from services.chat_context_manager import get_context_manager
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
+
+
+def _parse_local_timestamp_to_utc(value: str, tz_offset: int):
+    """Parse a bedtime/wake_time string into a UTC datetime for storage.
+
+    The app sends a naive *local* timestamp (e.g. "2026-06-01T03:00:00"). The
+    bedtime/wake_time columns are timestamptz, and the app converts back to
+    local on read (DateTime.parse(...).toLocal()), so we must store UTC here —
+    otherwise the value comes back shifted by the user's timezone offset.
+    Returns None if the value can't be parsed.
+    """
+    try:
+        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    # Naive input is the user's local time; shift to UTC using their offset.
+    if dt.tzinfo is None:
+        dt = dt - timedelta(minutes=tz_offset)
+    return dt
 
 
 @router.post("/sleep/entries", response_model=dict)
@@ -35,16 +54,10 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depe
         # the time — collapsing both fields to the same date and losing the
         # actual sleep/wake times.)
         if sleep_data.bedtime:
-            try:
-                bedtime = datetime.fromisoformat(sleep_data.bedtime.replace('Z', '+00:00'))
-            except ValueError:
-                pass
+            bedtime = _parse_local_timestamp_to_utc(sleep_data.bedtime, tz_offset)
 
         if sleep_data.wake_time:
-            try:
-                wake_time = datetime.fromisoformat(sleep_data.wake_time.replace('Z', '+00:00'))
-            except ValueError:
-                pass
+            wake_time = _parse_local_timestamp_to_utc(sleep_data.wake_time, tz_offset)
 
         # Check if entry exists for this date
         existing_entry = await supabase_service.get_sleep_entry_by_date(
@@ -200,18 +213,14 @@ async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate, tz_off
         # Preserve the full timestamp (time-of-day) rather than truncating to a
         # date — see note in create_sleep_entry above.
         if sleep_data.bedtime is not None:
-            try:
-                bedtime = datetime.fromisoformat(sleep_data.bedtime.replace('Z', '+00:00'))
+            bedtime = _parse_local_timestamp_to_utc(sleep_data.bedtime, tz_offset)
+            if bedtime is not None:
                 update_data['bedtime'] = bedtime.isoformat()
-            except ValueError:
-                pass
 
         if sleep_data.wake_time is not None:
-            try:
-                wake_time = datetime.fromisoformat(sleep_data.wake_time.replace('Z', '+00:00'))
+            wake_time = _parse_local_timestamp_to_utc(sleep_data.wake_time, tz_offset)
+            if wake_time is not None:
                 update_data['wake_time'] = wake_time.isoformat()
-            except ValueError:
-                pass
 
         if sleep_data.total_hours is not None:
             update_data['total_hours'] = sleep_data.total_hours
