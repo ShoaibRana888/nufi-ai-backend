@@ -29,15 +29,20 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depe
         bedtime = None
         wake_time = None
 
+        # bedtime / wake_time are full timestamps (e.g. "2026-06-01T03:00:00").
+        # Parse them as datetimes so the time-of-day is preserved. (Previously
+        # these used get_user_date(), which returns a DATE and silently dropped
+        # the time — collapsing both fields to the same date and losing the
+        # actual sleep/wake times.)
         if sleep_data.bedtime:
             try:
-                bedtime = get_user_date(sleep_data.bedtime, tz_offset)
+                bedtime = datetime.fromisoformat(sleep_data.bedtime.replace('Z', '+00:00'))
             except ValueError:
                 pass
 
         if sleep_data.wake_time:
             try:
-                wake_time = get_user_date(sleep_data.wake_time, tz_offset)
+                wake_time = datetime.fromisoformat(sleep_data.wake_time.replace('Z', '+00:00'))
             except ValueError:
                 pass
 
@@ -192,16 +197,18 @@ async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate, tz_off
 
         update_data = {}
 
+        # Preserve the full timestamp (time-of-day) rather than truncating to a
+        # date — see note in create_sleep_entry above.
         if sleep_data.bedtime is not None:
             try:
-                bedtime = get_user_date(sleep_data.bedtime, tz_offset)
+                bedtime = datetime.fromisoformat(sleep_data.bedtime.replace('Z', '+00:00'))
                 update_data['bedtime'] = bedtime.isoformat()
             except ValueError:
                 pass
 
         if sleep_data.wake_time is not None:
             try:
-                wake_time = get_user_date(sleep_data.wake_time, tz_offset)
+                wake_time = datetime.fromisoformat(sleep_data.wake_time.replace('Z', '+00:00'))
                 update_data['wake_time'] = wake_time.isoformat()
             except ValueError:
                 pass
