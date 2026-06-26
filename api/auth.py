@@ -443,13 +443,56 @@ async def update_user_profile(user_id: str, user_data: dict):
     """Update user profile"""
     try:
         print(f"👤 Updating user profile: {user_id}")
-        
+
         supabase_service = get_supabase_service()
         updated_user = await supabase_service.update_user(user_id, user_data)
-        
-        return {"success": True, "user": updated_user}
-        
+
+        # Include both keys for compatibility with callers expecting either shape.
+        return {"success": True, "user": updated_user, "userProfile": updated_user}
+
     except Exception as e:
         print(f"❌ Error updating user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/users/update-user/{user_id}")
+async def update_user_profile_compat(user_id: str, user_data: dict):
+    """Compatibility alias for the Flutter app.
+
+    The app's ApiClient is rooted at /api/health and calls
+    `PUT /users/update-user/{id}`, but the canonical update-user route lives in
+    the separate users router at /api/users (which the app never reaches). This
+    alias serves that exact path under /api/health and returns the response
+    shape the app parses (`userProfile` + `updatedFields`).
+    """
+    try:
+        print(f"👤 Updating user profile (compat): {user_id}")
+
+        supabase_service = get_supabase_service()
+
+        existing_user = await supabase_service.get_user_by_id(user_id)
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Drop nulls so we only update provided fields.
+        update_data = {k: v for k, v in user_data.items() if v is not None}
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No data provided for update")
+
+        updated_user = await supabase_service.update_user(user_id, update_data)
+        if not updated_user:
+            raise HTTPException(status_code=500, detail="Failed to update user")
+
+        return {
+            "success": True,
+            "userProfile": updated_user,
+            "message": "Profile updated successfully",
+            "updatedFields": list(update_data.keys()),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error updating user (compat): {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
