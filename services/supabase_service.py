@@ -958,10 +958,15 @@ class SupabaseService:
         try:
             print(f"🔍 Getting weight for user: {user_id}, date: {date}")
 
+            # weight_entries.date is a timestamptz (e.g. "2026-06-24T02:00:00+00"),
+            # so an exact .eq('date', 'YYYY-MM-DD') never matches. Match the whole
+            # day with a range instead.
+            next_day = date + timedelta(days=1)
             query = self.client.table('weight_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('date', str(date))\
+                .gte('date', str(date))\
+                .lt('date', str(next_day))\
                 .order('date', desc=True)\
                 .limit(1)
             if shared_only:

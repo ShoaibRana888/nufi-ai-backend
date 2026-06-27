@@ -692,10 +692,13 @@ class ChatContextManager:
         
         try:
             # Get weight
+            # weight_entries.date is a timestamptz, so match the whole day with a range.
+            weight_next_day = target_date + timedelta(days=1)
             weight_response = self.supabase_service.client.table('weight_entries')\
                 .select('*')\
                 .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
+                .gte('date', str(target_date))\
+                .lt('date', str(weight_next_day))\
                 .eq('shared_with_chat', True)\
                 .execute()
             activities['weight'] = weight_response.data[0] if weight_response.data else {}

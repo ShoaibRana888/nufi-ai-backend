@@ -48,14 +48,26 @@ class WeeklyContextManager:
                 .execute()
 
             if response.data and not is_current_week:
-                return {
-                    'success': True,
-                    'weekly_context': response.data[0]['context_data'],
-                    'summary': response.data[0].get('summary_data', {}),
-                    'week_start': str(week_start),
-                    'week_end': str(week_end),
-                    'version': response.data[0]['version']
-                }
+                cached_context = response.data[0]['context_data']
+                cached_days = (cached_context.get('week_info', {}) or {}).get('days_logged', 0)
+                # Only trust a cached past week if it actually has data. An empty
+                # cache (days_logged == 0) is likely stale — e.g. activity was
+                # back-dated into that week after the snapshot — so recompute it.
+                if cached_days and cached_days > 0:
+                    return {
+                        'success': True,
+                        'weekly_context': cached_context,
+                        'summary': response.data[0].get('summary_data', {}),
+                        'week_start': str(week_start),
+                        'week_end': str(week_end),
+                        'version': response.data[0]['version']
+                    }
+                # Drop the empty snapshot so we rebuild cleanly below.
+                self.supabase_service.client.table('weekly_contexts')\
+                    .delete()\
+                    .eq('user_id', user_id)\
+                    .eq('week_start_date', str(week_start))\
+                    .execute()
 
             # For the current week, drop any stale cached row first so we rebuild
             # cleanly from live daily data (avoids duplicate rows on re-aggregation).
@@ -393,9 +405,12 @@ class WeeklyContextManager:
                     hours = float(sleep.get('total_hours', 0) or 0)
                     data['total_sleep'] += hours
                     
+                    # Sleep entries store a numeric quality_score (0.0–1.0), not a
+                    # 'quality' label, so map it to a label (matching the app).
                     data['daily_sleep'][date_str] = {
                         'hours': hours,
-                        'quality': sleep.get('quality', 'unknown')
+                        'quality': self._quality_label(sleep.get('quality_score')),
+                        'quality_score': sleep.get('quality_score'),
                     }
                     
                     # Track best/worst sleep
@@ -628,9 +643,28 @@ class WeeklyContextManager:
         
         return insights
     
+    @staticmethod
+    def _quality_label(score) -> str:
+        """Map a 0.0–1.0 sleep quality_score to a label (matches the app)."""
+        if score is None:
+            return 'unknown'
+        try:
+            s = float(score)
+        except (TypeError, ValueError):
+            return 'unknown'
+        if s >= 0.9:
+            return 'Excellent'
+        if s >= 0.7:
+            return 'Good'
+        if s >= 0.5:
+            return 'Fair'
+        if s >= 0.3:
+            return 'Poor'
+        return 'Very Poor'
+
     async def get_recent_weeks_context(
-        self, 
-        user_id: str, 
+        self,
+        user_id: str,
         weeks_count: int = 4
     ) -> List[Dict[str, Any]]:
         """Get context for recent weeks"""
