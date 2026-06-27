@@ -890,14 +890,25 @@ class ChatContextManager:
         context['today_progress']['exercises'] = unique_exercises
         
         # Recalculate totals
-        context['today_progress']['totals'] = {
+        totals = {
             'calories': sum(m.get('calories', 0) for m in unique_meals),
             'protein': sum(m.get('protein_g', 0) for m in unique_meals),
             'carbs': sum(m.get('carbs_g', 0) for m in unique_meals),
             'fat': sum(m.get('fat_g', 0) for m in unique_meals),
             'fiber': sum(m.get('fiber_g', 0) for m in unique_meals)
         }
-        
+        context['today_progress']['totals'] = totals
+
+        # Keep the flat total_* fields in sync with totals. Incremental activity
+        # updates only maintain `totals`, so without this the flat fields stay
+        # stale (e.g. total_calories=0 while totals.calories=2285) — which the
+        # app's welcome banner and any flat-shape reader would show as zero.
+        context['today_progress']['total_calories'] = totals['calories']
+        context['today_progress']['total_protein'] = totals['protein']
+        context['today_progress']['total_carbs'] = totals['carbs']
+        context['today_progress']['total_fat'] = totals['fat']
+        context['today_progress']['total_fiber'] = totals['fiber']
+
         context['today_progress']['meals_logged'] = len(unique_meals)
         context['today_progress']['exercises_done'] = len(unique_exercises)
         context['today_progress']['exercise_minutes'] = sum(
