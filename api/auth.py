@@ -386,7 +386,44 @@ async def get_health_user_profile(user_id: str):
             success=False,
             error=str(e)
         )
-    
+
+
+@router.delete("/users/{user_id}")
+async def delete_user_account(user_id: str):
+    """Permanently delete a user account and ALL associated data.
+
+    Backs the app's "Delete Account" action (required for app-store / privacy
+    compliance). This is irreversible — every per-user row across all tables is
+    removed, then the user record itself.
+    """
+    try:
+        print(f"🗑️ Deleting account and all data for user: {user_id}")
+
+        supabase_service = get_supabase_service()
+        result = await supabase_service.delete_user_account(user_id)
+
+        if not result.get("success"):
+            if result.get("error") == "User not found":
+                raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete account: {result.get('errors')}",
+            )
+
+        print(f"✅ Account deleted for {user_id}: {result.get('deleted')}")
+        return {
+            "success": True,
+            "message": "Account and all associated data deleted",
+            "deleted": result.get("deleted"),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error deleting account for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/auth/login")
 async def auth_login(login_data: dict):
     """Login endpoint that matches Flutter's expected path"""

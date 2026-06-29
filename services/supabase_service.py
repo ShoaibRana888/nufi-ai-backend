@@ -53,11 +53,74 @@ class SupabaseService:
                 .execute()
             
             return response.data if response.data else None
-            
+
         except Exception as e:
             print(f"❌ Supabase fetch error: {str(e)}")
             return None
-    
+
+    async def delete_user_account(self, user_id: str) -> Dict[str, Any]:
+        """Permanently delete a user and ALL of their data.
+
+        Deletes every per-user table (all keyed by ``user_id``) first, then the
+        ``users`` row itself (keyed by ``id``). Runs with the Supabase service
+        key, so RLS does not block the deletes. Returns a per-table report so
+        the caller can verify completeness. Irreversible.
+        """
+        # All tables that store per-user rows keyed by user_id.
+        user_data_tables = [
+            "chat_messages",
+            "chat_sessions",
+            "chat_contexts",
+            "weekly_contexts",
+            "daily_nutrition",
+            "daily_steps",
+            "daily_water",
+            "exercise_logs",
+            "meal_entries",
+            "meal_presets",
+            "period_entries",
+            "sleep_entries",
+            "supplement_logs",
+            "supplement_preferences",
+            "weight_entries",
+            "fcm_tokens",
+            "notification_preferences",
+            "notifications",
+        ]
+
+        # Verify the user exists so the caller can return a clean 404.
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            return {"success": False, "error": "User not found"}
+
+        deleted: Dict[str, int] = {}
+        errors: Dict[str, str] = {}
+
+        for table in user_data_tables:
+            try:
+                response = self.client.table(table) \
+                    .delete() \
+                    .eq("user_id", user_id) \
+                    .execute()
+                deleted[table] = len(response.data) if response.data else 0
+            except Exception as e:
+                print(f"❌ Error deleting from {table} for user {user_id}: {e}")
+                errors[table] = str(e)
+
+        # Delete the user row last (keyed by id, not user_id).
+        try:
+            response = self.client.table("users") \
+                .delete() \
+                .eq("id", user_id) \
+                .execute()
+            deleted["users"] = len(response.data) if response.data else 0
+        except Exception as e:
+            print(f"❌ Error deleting user row {user_id}: {e}")
+            errors["users"] = str(e)
+
+        success = "users" not in errors and deleted.get("users", 0) > 0
+        return {"success": success, "deleted": deleted, "errors": errors}
+
     async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         """Get user by email"""
         try:
