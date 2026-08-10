@@ -2,12 +2,28 @@
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime, date, timedelta
+import asyncio
 import json
 from services.supabase_service import get_supabase_service
+
+# How long a cached CURRENT-week snapshot is served before we refresh it.
+# Rebuilding the current week aggregates the whole week from live daily data
+# (14–27s), so instead of blocking every read we serve the cached snapshot and
+# refresh it in the background at most once per this window (stale-while-
+# revalidate). Past, completed weeks are immutable and always served from cache.
+CURRENT_WEEK_TTL_SECONDS = 600  # 10 minutes
+
 
 class WeeklyContextManager:
     def __init__(self):
         self.supabase_service = get_supabase_service()
+        # Single-flight guard: (user_id, week_start_str) currently being rebuilt
+        # in the background, so N concurrent reads spawn at most one rebuild.
+        # In-memory / per-process — sufficient on a single Render instance.
+        self._rebuilding_current_week: set = set()
+        # Strong refs to in-flight background refresh tasks so the event loop
+        # doesn't garbage-collect them before they finish.
+        self._refresh_tasks: set = set()
     
     def get_week_boundaries(self, target_date: date) -> tuple:
         """Get the start and end dates of the week containing target_date"""
@@ -35,8 +51,10 @@ class WeeklyContextManager:
         week_number, year = self.get_week_number(target_date)
 
         # The current (ongoing) week keeps accumulating data throughout the week,
-        # so a cached snapshot would be stale. Always rebuild it from live data.
-        # Past, completed weeks are safe to serve from cache.
+        # so its snapshot goes stale as activities are logged. We serve it via
+        # stale-while-revalidate (see CURRENT_WEEK_TTL_SECONDS) instead of
+        # rebuilding on every read. Past, completed weeks are safe to serve
+        # straight from cache.
         is_current_week = week_end >= datetime.now().date()
 
         try:
@@ -47,45 +65,112 @@ class WeeklyContextManager:
                 .eq('week_start_date', str(week_start))\
                 .execute()
 
-            if response.data and not is_current_week:
-                cached_context = response.data[0]['context_data']
+            row = response.data[0] if response.data else None
+
+            if row and not is_current_week:
+                cached_context = row['context_data']
                 cached_days = (cached_context.get('week_info', {}) or {}).get('days_logged', 0)
                 # Only trust a cached past week if it actually has data. An empty
                 # cache (days_logged == 0) is likely stale — e.g. activity was
                 # back-dated into that week after the snapshot — so recompute it.
                 if cached_days and cached_days > 0:
-                    return {
-                        'success': True,
-                        'weekly_context': cached_context,
-                        'summary': response.data[0].get('summary_data', {}),
-                        'week_start': str(week_start),
-                        'week_end': str(week_end),
-                        'version': response.data[0]['version']
-                    }
+                    return self._weekly_result(row, week_start, week_end)
                 # Drop the empty snapshot so we rebuild cleanly below.
                 self.supabase_service.client.table('weekly_contexts')\
                     .delete()\
                     .eq('user_id', user_id)\
                     .eq('week_start_date', str(week_start))\
                     .execute()
+                return await self.create_weekly_context(
+                    user_id, week_start, week_end, week_number, year
+                )
 
-            # For the current week, drop any stale cached row first so we rebuild
-            # cleanly from live daily data (avoids duplicate rows on re-aggregation).
-            if response.data and is_current_week:
-                self.supabase_service.client.table('weekly_contexts')\
-                    .delete()\
-                    .eq('user_id', user_id)\
-                    .eq('week_start_date', str(week_start))\
-                    .execute()
+            if row and is_current_week:
+                # Stale-while-revalidate: serve the cached snapshot immediately
+                # and, if it's past the TTL, kick off a single guarded background
+                # rebuild. No read ever blocks on the 14–27s aggregation (except
+                # the very first build of the week, handled below when row is None).
+                cached_days = (row['context_data'].get('week_info', {}) or {}).get('days_logged', 0)
+                # An empty snapshot (days_logged == 0) is refreshed regardless of
+                # the TTL, so the first activity logged in a previously-empty week
+                # surfaces on the weekly card promptly (the empty-week rebuild is
+                # the cheapest case anyway).
+                needs_refresh = (not cached_days) or self._is_current_week_stale(row.get('updated_at'))
+                if needs_refresh:
+                    self._schedule_current_week_refresh(
+                        user_id, week_start, week_end, week_number, year
+                    )
+                return self._weekly_result(row, week_start, week_end)
 
-            # Create the weekly context from live daily data.
+            # No cached row yet (first read this week) — build synchronously once.
             return await self.create_weekly_context(
                 user_id, week_start, week_end, week_number, year
             )
-            
+
         except Exception as e:
             print(f"Error getting weekly context: {e}")
             return {'success': False, 'error': str(e)}
+
+    def _weekly_result(self, row: Dict[str, Any], week_start: date, week_end: date) -> Dict[str, Any]:
+        """Shape a stored weekly_contexts row into the standard return payload."""
+        return {
+            'success': True,
+            'weekly_context': row['context_data'],
+            'summary': row.get('summary_data', {}),
+            'week_start': str(week_start),
+            'week_end': str(week_end),
+            'version': row['version']
+        }
+
+    def _is_current_week_stale(self, updated_at: Optional[str]) -> bool:
+        """True if the cached current-week snapshot is older than the TTL (or has
+        no/unparseable timestamp, in which case we refresh to be safe)."""
+        if not updated_at:
+            return True
+        try:
+            last = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+            # Stored timestamps are naive local (datetime.now().isoformat()); if a
+            # tz-aware value slips in, compare on naive wall-clock to stay consistent.
+            if last.tzinfo is not None:
+                last = last.replace(tzinfo=None)
+            return (datetime.now() - last).total_seconds() > CURRENT_WEEK_TTL_SECONDS
+        except (ValueError, TypeError):
+            return True
+
+    def _schedule_current_week_refresh(
+        self,
+        user_id: str,
+        week_start: date,
+        week_end: date,
+        week_number: int,
+        year: int
+    ) -> None:
+        """Fire a single background rebuild for a stale current week. Guarded so
+        concurrent stale reads coalesce into one rebuild (no stampede)."""
+        key = (user_id, str(week_start))
+        if key in self._rebuilding_current_week:
+            return  # a rebuild is already in flight for this user/week
+        self._rebuilding_current_week.add(key)
+
+        async def _run():
+            try:
+                await self.create_weekly_context(
+                    user_id, week_start, week_end, week_number, year
+                )
+                print(f"🔄 SWR: refreshed current-week context for {user_id} ({week_start})")
+            except Exception as e:
+                print(f"⚠️ SWR: background refresh failed for {user_id} ({week_start}): {e}")
+            finally:
+                self._rebuilding_current_week.discard(key)
+
+        try:
+            task = asyncio.create_task(_run())
+            self._refresh_tasks.add(task)
+            task.add_done_callback(self._refresh_tasks.discard)
+        except RuntimeError:
+            # No running event loop (shouldn't happen under FastAPI). Drop the
+            # guard so a later read can retry; the stale snapshot was still served.
+            self._rebuilding_current_week.discard(key)
     
     async def create_weekly_context(
         self, 
@@ -196,23 +281,44 @@ class WeeklyContextManager:
                 'areas_for_improvement': insights.get('improvements', [])
             }
             
-            # Save to database
-            response = self.supabase_service.client.table('weekly_contexts')\
-                .upsert({
-                    'user_id': user_id,
-                    'week_start_date': str(week_start),
-                    'week_end_date': str(week_end),
-                    'week_number': week_number,
-                    'year': year,
-                    'context_data': context_data,
-                    'summary_data': summary_data,
-                    'version': 1,
-                    'created_at': datetime.now().isoformat(),
-                    'updated_at': datetime.now().isoformat()
-                })\
+            # Save to database. Update the existing row in place when one exists
+            # for this (user, week), otherwise insert. This replaces a bare
+            # `.upsert()` (which has no on_conflict target on this table and would
+            # INSERT duplicates) and avoids the old delete-then-create pattern —
+            # so the stale-while-revalidate background refresh never opens a
+            # no-row window that a concurrent read could fall into.
+            now_iso = datetime.now().isoformat()
+            record = {
+                'user_id': user_id,
+                'week_start_date': str(week_start),
+                'week_end_date': str(week_end),
+                'week_number': week_number,
+                'year': year,
+                'context_data': context_data,
+                'summary_data': summary_data,
+                'version': 1,
+                'updated_at': now_iso
+            }
+
+            existing = self.supabase_service.client.table('weekly_contexts')\
+                .select('id')\
+                .eq('user_id', user_id)\
+                .eq('week_start_date', str(week_start))\
                 .execute()
-            
-            print(f"✅ Weekly context created for week {week_number}/{year}")
+
+            if existing.data:
+                self.supabase_service.client.table('weekly_contexts')\
+                    .update(record)\
+                    .eq('user_id', user_id)\
+                    .eq('week_start_date', str(week_start))\
+                    .execute()
+            else:
+                record['created_at'] = now_iso
+                self.supabase_service.client.table('weekly_contexts')\
+                    .insert(record)\
+                    .execute()
+
+            print(f"✅ Weekly context saved for week {week_number}/{year}")
             
             return {
                 'success': True,

@@ -700,7 +700,20 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
                 await self.supabase_service.save_chat_message(user_id, message, is_user=True)
             except Exception as e:
                 print(f"⚠️ Error saving user message: {e}")
-            
+
+            # Rebuild today's context from source tables before the AI reads it.
+            # Activity logging is now fire-and-forget on the client (so logging
+            # and the dashboard stay fast), which means the cached daily context
+            # can be slightly stale. Rebuilding here guarantees the coach always
+            # sees the latest logged activities, regardless of the client.
+            try:
+                from services.chat_context_manager import get_context_manager
+                from datetime import datetime as _dt
+                await get_context_manager().rebuild_context(user_id, _dt.now().date())
+                print("🔄 Rebuilt today's context before generating reply")
+            except Exception as e:
+                print(f"⚠️ Could not rebuild today's context before reply (using cached): {e}")
+
             # Try comprehensive context first, fallback to basic
             try:
                 user_context = await self.get_comprehensive_context(user_id, include_weeks=4)
