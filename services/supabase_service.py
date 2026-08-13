@@ -1701,14 +1701,45 @@ class SupabaseService:
                 .eq("user_id", user_id)\
                 .order("created_at", desc=False)\
                 .limit(limit)
-            
+
             if session_id:
                 query = query.eq("session_id", session_id)
-            
+
             result = query.execute()
             return result.data if result.data else []
         except Exception as e:
             print(f"Error getting chat messages: {e}")
+            return []
+
+    async def get_recent_chat_messages(
+        self, user_id: str, limit: int = 100, before: str = None
+    ) -> List[Dict]:
+        """Get the MOST RECENT chat messages for a user, returned in ascending
+        (oldest-first) order ready for display.
+
+        Unlike get_chat_messages (which orders ascending then limits, i.e.
+        returns the *oldest* N), this fetches newest-first with a limit so long
+        transcripts don't ship in full on every chat open, then reverses to
+        chronological order. Pass `before` (an ISO created_at) to page further
+        back for lazy scroll-up loading.
+        """
+        try:
+            query = self.client.table("chat_messages")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .order("created_at", desc=True)\
+                .limit(limit)
+
+            if before:
+                query = query.lt("created_at", before)
+
+            result = query.execute()
+            rows = result.data if result.data else []
+            # Reverse newest-first -> oldest-first for the UI.
+            rows.reverse()
+            return rows
+        except Exception as e:
+            print(f"Error getting recent chat messages: {e}")
             return []
 
     async def clear_chat_messages(self, user_id: str) -> bool:

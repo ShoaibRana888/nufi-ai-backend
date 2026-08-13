@@ -274,11 +274,18 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
         }
 
 @router.get("/history/{user_id}")
-async def get_chat_history(user_id: str):
-    """Get user's chat history"""
+async def get_chat_history(user_id: str, limit: int = 100, before: str = None):
+    """Get user's chat history (most recent `limit`, oldest-first).
+
+    `before` (ISO created_at) pages further back for lazy scroll-up loading.
+    Defaults keep this backward compatible: older clients that send no params
+    get the most recent 100 messages instead of the entire transcript.
+    """
     try:
         supabase_service = get_supabase_service()
-        history = await supabase_service.get_chat_messages(user_id)
+        history = await supabase_service.get_recent_chat_messages(
+            user_id, limit=limit, before=before
+        )
 
         return {
             "success": True,
@@ -309,7 +316,9 @@ async def get_chat_messages(user_id: str, limit: int = 50):
     """Get chat messages for a user"""
     try:
         supabase_service = get_supabase_service()
-        messages = supabase_service.get_chat_messages(user_id, limit)
+        # get_chat_messages is async — it must be awaited, otherwise this returns
+        # an un-awaited coroutine and len() below would fail.
+        messages = await supabase_service.get_chat_messages(user_id, limit)
 
         return {
             "success": True,
