@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, date, timedelta
 import json
 from services.supabase_service import get_supabase_service
+from services.guardrails import compute_body_state
 
 class ChatContextManager:
     def __init__(self):
@@ -597,7 +598,26 @@ class ChatContextManager:
                     'rebuild_reason': 'manual_rebuild'
                 }
             }
-            
+
+            # Layer 1: distil raw activities into a decision-ready body_state
+            # (cycle phase, sleep, calorie balance, what's already done today)
+            # so the chat guardrails can read it without re-querying source tables.
+            try:
+                context['body_state'] = compute_body_state(
+                    user,
+                    activities,
+                    {
+                        'calories': total_calories,
+                        'protein': total_protein,
+                        'carbs': total_carbs,
+                        'fat': total_fat,
+                    },
+                    target_date,
+                )
+            except Exception as e:
+                print(f"⚠️ Could not compute body_state guardrails: {e}")
+                context['body_state'] = {}
+
             # Save the rebuilt context
             await self._save_context(user_id, target_date, context, 1)
             

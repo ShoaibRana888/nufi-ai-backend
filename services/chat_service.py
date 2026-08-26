@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, date
 from services.openai_service import get_openai_service
 from services.supabase_service import get_supabase_service
 from services.weekly_context_manager import get_weekly_context_manager
+from services.guardrails import render_guardrail_prompt, post_check_response
 
 class HealthChatService:
     def __init__(self):
@@ -674,7 +675,14 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
 - Celebrate small wins and progress
 - For off-topic questions, politely redirect: "I'm your health and fitness coach! I can help with workouts, nutrition, and reaching your goals. What would you like to know about those topics?"
 - Always prioritize user safety and wellbeing over any fitness goal"""
-        
+
+        # Layer 2: append body-state behavioral guardrails (cycle/sleep/calorie/
+        # already-done). These are the facts + hard rules that keep suggestions
+        # safe and non-redundant.
+        guardrail_block = render_guardrail_prompt(context.get('body_state'))
+        if guardrail_block:
+            prompt += "\n" + guardrail_block
+
         return prompt
     
     async def generate_chat_response(self, user_id: str, message: str) -> str:
@@ -761,6 +769,15 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
             # ===== STEP 2: Add safety disclaimers if needed =====
             reply = self._add_safety_disclaimers(reply, message)
             # ===================================================
+
+            # ===== STEP 3: Layer-3 deterministic guardrail post-check =====
+            # Appends a corrective caveat if the reply pushes intensity while
+            # menstruating / sleep-deprived, or nudges more food while over target.
+            try:
+                reply = post_check_response(reply, user_context.get('body_state'))
+            except Exception as e:
+                print(f"⚠️ Guardrail post-check skipped: {e}")
+            # =============================================================
             
             # Save AI response
             try:
