@@ -20,6 +20,16 @@ designed interface, not an accident.
 - **Entry** — a single logged record for one tracker on one date. Most trackers upsert
   one entry per date; meals/exercise allow several. Meals additionally roll up into
   **daily nutrition** (`daily_nutrition` table).
+- **Entry date columns are not one type.** What the code treats as "the day an entry
+  belongs to" is stored three different ways, verified against the live schema:
+  `exercise_logs.exercise_date` is `timestamptz`, `meal_entries.meal_date` is
+  `timestamp without time zone`, `sleep_entries.date` is `date`. So `.eq('<column>',
+  '2026-09-06')` matches only rows stored at exactly midnight, and whether that is
+  correct depends on what each writer happens to store — `api/exercise.py` writes a real
+  time-of-day whenever the client omits `exercise_date`, because it falls back to
+  `get_user_now()`, which returns a datetime. **Always filter a day with a half-open
+  range** (`gte(date)` / `lt(next_day)`), which is correct for all three. The store's
+  by-date reads already do; reaching past them is how this bites.
 - **Shared with chat** — a per-entry privacy flag (`shared_with_chat`). The store exposes
   it as a `shared_only: bool` parameter on the by-date reads
   (`get_meals_by_date(..., shared_only=True)`, `get_water_by_date`, `get_steps_by_date`, …).
