@@ -42,11 +42,16 @@ non-additive change to a live response shape, taken because the field had no con
 either side. Unrelated to the weekly screen, which reads `nutrition_summary` /
 `exercise_summary` / `hydration` from the **weekly-context** endpoint and is unaffected.
 
-Also relevant to the per-section requirement below: the existing per-day reads swallow
-exceptions into empty results, so a failed tracker read and a genuinely empty day are
-indistinguishable today. This endpoint's "a section may be omitted (⇒ client treats as
-missing)" rule **cannot be satisfied by that behaviour** — an error has to be
-distinguishable from an absence when the section is built.
+`get_weight_by_date` **cannot be reused as-is** for the `weight` section. It projects the
+row into a fixed field set and **drops `shared_with_chat`**, which this contract requires
+rows to carry. Either widen that store method or read weight raw for this endpoint.
+
+The per-section isolation this endpoint requires now has a precedent to copy.
+`get_shared_activities_for_date` ([ADR-0002](../adr/0002-shared-activities-for-a-date.md))
+keeps its sections independent and reports per-section failures under `_read_errors`,
+rather than the older swallow-into-empty behaviour that made a broken tracker read
+indistinguishable from a day with nothing logged. The owner's-day read should do the same
+— that mapping is exactly this contract's `missing` vs `error` distinction.
 
 ## Do not conflate with candidate #1
 

@@ -24,17 +24,19 @@ designed interface, not an accident.
   it as a `shared_only: bool` parameter on the by-date reads
   (`get_meals_by_date(..., shared_only=True)`, `get_water_by_date`, `get_steps_by_date`, …).
   Entries not shared are excluded from chat context.
-- **Shared activities for a date** *(emerging term)* — the set of a user's shared entries
-  across all trackers on one date. It has no single read yet: the context builders
-  re-derive it with **17 leaked reads across 3 files** — `chat_context_manager`,
-  `chat_service`, `weekly_context_manager` (meals 3, exercise 3, water 3, steps 3,
-  weight 2, sleep 2, period 1). Candidate #1 gives it one home:
-  `supabase_service.get_shared_activities_for_date(user_id, date)`.
-  - Earlier drafts sized this as "~70 calls across 15 files". That is the count of **all**
-    leaked reads in the repo, which is a different and much larger set: the context
-    builders' own `chat_contexts` / `weekly_contexts` persistence (13), plus notifications,
-    FCM, debug, meal suggestions. Those are separate concerns and separate decisions —
-    don't fold them into #1's scope on the strength of sharing a code smell.
+- **Shared activities for a date** — the set of a user's shared entries across all
+  trackers on one date. Owned by `supabase_service.get_shared_activities_for_date`,
+  which returns the eight tracker sections plus `_read_errors` (a per-section failure
+  map, empty on success). Sections are independent: one broken tracker read never fails
+  the others. See [ADR-0002](docs/adr/0002-shared-activities-for-a-date.md).
+  - **Shared-only by construction.** This is the *coach's* view. The **owner's complete
+    day** — every entry regardless of `shared_with_chat` — is a different read, requested
+    by the client in `docs/contracts/daily-snapshot-endpoint.md`. Same plumbing, two
+    interfaces; do not conflate them.
+  - Before this, the three context builders re-derived it with 17 leaked reads, filtering
+    meal dates three different ways and using `.eq()` on columns the store reads with a
+    half-open range. Composing the store's own per-tracker methods means every caller
+    inherits the range form, which is correct whether a column holds a date or a timestamp.
 - **Coach** — the AI chat assistant (`chat_service` + `openai_service`). Answers using
   chat context.
 - **Chat context** — the digest of a user's recent tracker data fed to the coach.
@@ -77,14 +79,20 @@ designed interface, not an accident.
 
 ## Data access vocabulary (the architecture work touches this)
 
-- **The store** — `services/supabase_service.py` (1,828 lines, ~70 methods). The single
+- **The store** — `services/supabase_service.py` (1,925 lines, 86 methods). The single
   module that should own table access. Its interface is currently nearly as wide as its
   implementation: each tracker repeats the same CRUD family (create / update /
   get_by_date / get_by_date+shared / history / range / delete). Candidate #2 collapses
   this into a **daily-metric store** keyed by a metric descriptor.
-- **Leaked read** — a raw `.client.table(...)` call made *outside* the store (context
-  builders and several endpoints). These are what candidate #1 pulls back behind the
-  store's interface.
+- **Leaked read** — a raw `.client.table(...)` call made *outside* the store. The
+  context builders have none left: candidate #1 pulled all 17 behind
+  `get_shared_activities_for_date`. What remains is two distinct groups, and neither is
+  "more of #1":
+  - **Context persistence** — `chat_contexts` and `weekly_contexts` reads inside the two
+    context managers. These are the context store's *own* storage, not tracker data. If
+    they get a home it is a context-store module, not the tracker store.
+  - **Endpoint reads** — `api/` modules reaching tables directly (notifications, FCM,
+    debug, meal suggestions, meal presets). Separate concerns, separate decisions.
 - **`log_daily_metric` use-case** *(emerging term)* — candidate #4. Endpoints repeat
   "upsert-by-date, then remember to refresh chat context", and this use-case would own
   that flow as one atomic move. **Its stated justification does not hold as written** and
