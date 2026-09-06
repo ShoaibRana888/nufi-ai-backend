@@ -82,8 +82,9 @@ testability" was a promise nothing could keep.
 - The repo has a test suite: 22 tests, and it runs on `pytest` alone — no `openai`, no
   `supabase`, no environment. That property is worth protecting; the moment a test needs
   the app's runtime dependencies, the purity seam has moved.
-- Net **−332 lines** across the four commits, and 71 sequential database round-trips
-  removed from the chat-context path.
+- Production code is net **−164 lines** (266 deleted, 102 added across `services/` and
+  `api/`), against **+201** of tests and config. 71 sequential database round-trips
+  removed from the chat-context path (42 in `chat_service`, 29 in `chat_context_manager`).
 - `weekly_summary` did ship in `GET /chat/context/{user_id}`, so its removal is a
   response-shape change. Taken anyway, against a field with no consumer on either side,
   and recorded in `docs/contracts/`. This is the one place the additive-only convention
