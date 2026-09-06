@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 import json
 from services.supabase_service import get_supabase_service
 from services.guardrails import compute_body_state
-from services.health_trends import weight_status, weight_trend
+from services.health_trends import weight_status
 
 class ChatContextManager:
     def __init__(self):
@@ -420,12 +420,6 @@ class ChatContextManager:
                         'fiber': total_fiber
                     }
                 },
-                'weekly_summary': {
-                    'avg_daily_calories': 0,
-                    'total_workouts': 0,
-                    'avg_sleep_hours': 0,
-                    'weight_trend': 'unknown'
-                },
                 'goals_progress': {
                     'daily_calorie_goal': user.get('tdee', 2000),
                     'water_goal_glasses': user.get('water_intake_glasses', 8),
@@ -579,7 +573,6 @@ class ChatContextManager:
                         'sodium': total_sodium
                     }
                 },
-                'weekly_summary': await self._get_weekly_summary(user_id, target_date),
                 'goals_progress': {
                     'daily_calorie_goal': user.get('tdee', 2000),
                     'water_goal_glasses': user.get('water_intake_glasses', 8),
@@ -776,84 +769,6 @@ class ChatContextManager:
                     taken.append(supp.get('supplement_name', ''))
         
         return taken
-
-    async def _get_weekly_summary(self, user_id: str, target_date: date) -> Dict[str, Any]:
-        """Get weekly summary statistics"""
-        try:
-            # Calculate date range for past 7 days
-            end_date = target_date
-            start_date = end_date - timedelta(days=6)
-            
-            # Initialize summary
-            summary = {
-                'avg_daily_calories': 0,
-                'total_workouts': 0,
-                'avg_sleep_hours': 0,
-                'weight_trend': 'unknown',
-                'hydration_consistency': 0,
-                'workout_streak': 0
-            }
-            
-            # Fetch data for the week
-            total_calories = 0
-            days_with_meals = 0
-            total_sleep = 0
-            days_with_sleep = 0
-            days_with_water = 0
-            workout_days = set()
-            
-            for i in range(7):
-                check_date = start_date + timedelta(days=i)
-                
-                # Get meals for calorie average
-                meals = await self.supabase_service.get_meals_by_date(user_id, check_date, shared_only=True)
-                if meals:
-                    daily_calories = sum(m.get('calories', 0) for m in meals)
-                    if daily_calories > 0:
-                        total_calories += daily_calories
-                        days_with_meals += 1
-                
-                # Get sleep
-                sleep = await self.supabase_service.get_sleep_by_date(user_id, check_date, shared_only=True)
-                if sleep and sleep.get('total_hours'):
-                    total_sleep += sleep['total_hours']
-                    days_with_sleep += 1
-                
-                # Get water
-                water = await self.supabase_service.get_water_by_date(user_id, check_date, shared_only=True)
-                if water and water.get('glasses_consumed', 0) > 0:
-                    days_with_water += 1
-                
-                # Get exercise
-                exercises = await self.supabase_service.get_exercises_by_date(user_id, check_date, shared_only=True)
-                if exercises:
-                    workout_days.add(str(check_date))
-            
-            # Calculate averages
-            summary['avg_daily_calories'] = round(total_calories / days_with_meals) if days_with_meals > 0 else 0
-            summary['total_workouts'] = len(workout_days)
-            summary['avg_sleep_hours'] = round(total_sleep / days_with_sleep, 1) if days_with_sleep > 0 else 0
-            summary['hydration_consistency'] = round((days_with_water / 7) * 100)
-            
-            # Get weight trend
-            weight_entries = await self.supabase_service.get_weight_entries(
-                user_id,
-                start_date=str(start_date),
-                end_date=str(end_date),
-                shared_only=True
-            )
-            summary['weight_trend'] = weight_trend(weight_entries)
-            
-            return summary
-            
-        except Exception as e:
-            print(f"⚠️ Error getting weekly summary: {e}")
-            return {
-                'avg_daily_calories': 0,
-                'total_workouts': 0,
-                'avg_sleep_hours': 0,
-                'weight_trend': 'unknown'
-            }
 
     def deduplicate_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Remove duplicate entries from context"""

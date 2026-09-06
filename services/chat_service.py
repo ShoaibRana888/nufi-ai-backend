@@ -6,7 +6,7 @@ from services.openai_service import get_openai_service
 from services.supabase_service import get_supabase_service
 from services.weekly_context_manager import get_weekly_context_manager
 from services.guardrails import render_guardrail_prompt, post_check_response
-from services.health_trends import weight_status, weight_trend
+from services.health_trends import weight_status
 
 class HealthChatService:
     def __init__(self):
@@ -242,60 +242,6 @@ class HealthChatService:
         
         return activities
     
-    async def _get_weekly_summary(self, user_id: str) -> Dict[str, Any]:
-        """Get weekly summary statistics"""
-        try:
-            end_date = datetime.now().date()
-            start_date = end_date - timedelta(days=7)
-            
-            total_calories = 0
-            total_workouts = 0
-            total_sleep_hours = 0
-            sleep_count = 0
-            weight_entries = []
-            
-            for i in range(7):
-                date = start_date + timedelta(days=i)
-                activities = await self.get_today_activities(user_id, date)
-                
-                # Sum up meals
-                meals = activities.get('meals', [])
-                for meal in meals:
-                    total_calories += meal.get('calories', 0)
-                
-                # Count workouts
-                if activities.get('exercise'):
-                    total_workouts += len(activities['exercise'])
-                
-                # Sum sleep
-                if activities.get('sleep') and activities['sleep'].get('total_hours'):
-                    total_sleep_hours += activities['sleep']['total_hours']
-                    sleep_count += 1
-                
-                # Collect weight entries
-                if activities.get('weight') and activities['weight'].get('weight'):
-                    weight_entries.append(activities['weight'])
-            
-            avg_daily_calories = round(total_calories / 7) if total_calories > 0 else 0
-            avg_sleep_hours = round(total_sleep_hours / sleep_count, 1) if sleep_count > 0 else 0
-            trend = weight_trend(weight_entries)
-            
-            return {
-                'avg_daily_calories': avg_daily_calories,
-                'total_workouts': total_workouts,
-                'avg_sleep_hours': avg_sleep_hours,
-                'weight_trend': trend,
-            }
-            
-        except Exception as e:
-            print(f"Error getting weekly summary: {e}")
-            return {
-                'avg_daily_calories': 0,
-                'total_workouts': 0,
-                'avg_sleep_hours': 0,
-                'weight_trend': 'unknown',
-            }
-
     async def _get_recent_activity_summary(self, user_id: str) -> Dict[str, Any]:
         """Get recent activity summary for the past week"""
         try:
@@ -376,9 +322,6 @@ class HealthChatService:
             weight = activities.get('weight', {})
             sleep = yesterday_activities.get('sleep', {})  # Use yesterday's sleep
             
-            # Get weekly summary
-            weekly_summary = await self._get_weekly_summary(user_id)
-            
             # Get recent activity
             recent_activity = await self._get_recent_activity_summary(user_id)
             
@@ -414,7 +357,6 @@ class HealthChatService:
                     'sleep_quality': sleep.get('quality', 'Not logged'),
                     'weight_logged': weight.get('weight'),
                 },
-                'weekly_summary': weekly_summary,
                 'goals_progress': {
                     'daily_calorie_goal': user.get('tdee', 2000),
                     'water_goal_glasses': user.get('water_intake_glasses', 8),
@@ -470,12 +412,6 @@ class HealthChatService:
                 'sleep_hours': 0,
                 'sleep_quality': 'Not logged',
                 'weight_logged': None,
-            },
-            'weekly_summary': {
-                'avg_daily_calories': 0,
-                'total_workouts': 0,
-                'avg_sleep_hours': 0,
-                'weight_trend': 'unknown',
             },
             'goals_progress': {
                 'daily_calorie_goal': 2000,
