@@ -32,7 +32,8 @@ ROWS = {
     'daily_steps': [{'steps': 8200}],
     'sleep_entries': [{'total_hours': 7.5, 'quality_score': 0.8}],
     'exercise_logs': [{'exercise_name': 'run', 'duration_minutes': 30}],
-    'weight_entries': [{'date': '2026-09-06', 'weight': 70.0}],
+    'weight_entries': [{'id': 'w1', 'user_id': 'u1', 'date': '2026-09-06',
+                        'weight': 70.0, 'shared_with_chat': True}],
     'period_entries': [],
     'supplement_logs': [],
     'user_supplements': [],
@@ -93,19 +94,25 @@ def cs(store):
 # ---------------------------------------------------------------------------
 # The eight sections, and what each builder means by "nothing logged".
 # ---------------------------------------------------------------------------
-def test_chat_service_builder_returns_seven_sections(cs):
-    """No period section: get_today_activities never read period_entries."""
-    activities = run(cs.get_today_activities('u1', DAY))
-
-    assert set(activities) == {'meals', 'water', 'exercise', 'sleep',
-                               'supplements', 'weight', 'steps'}
+SECTIONS = {'meals', 'water', 'exercise', 'steps', 'sleep', 'weight',
+            'supplements', 'period'}
 
 
-def test_context_manager_builder_returns_eight_sections(ccm):
-    activities = run(ccm._fetch_all_daily_activities('u1', DAY))
+def test_both_builders_now_return_the_same_sections(ccm, cs):
+    """Changed by the rewiring, in two ways.
 
-    assert set(activities) == {'meals', 'water', 'exercise', 'steps', 'sleep',
-                               'weight', 'supplements', 'period'}
+    get_today_activities used to return seven sections -- it never read
+    period_entries -- so the coach's period guardrail saw nothing on that
+    path. Both builders now return all eight.
+
+    Both also gained `_read_errors`. Every consumer reads named sections via
+    .get(), so the extra key is inert for them.
+    """
+    from_ccm = run(ccm._fetch_all_daily_activities('u1', DAY))
+    from_cs = run(cs.get_today_activities('u1', DAY))
+
+    assert set(from_ccm) == set(from_cs) == SECTIONS | {'_read_errors'}
+    assert from_ccm['_read_errors'] == {}
 
 
 @pytest.mark.parametrize('section,expected', [
@@ -116,7 +123,14 @@ def test_context_manager_builder_returns_eight_sections(ccm):
     ('steps', {'steps': 8200}),
     ('sleep', {'total_hours': 7.5, 'quality_score': 0.8}),
     ('exercise', [{'exercise_name': 'run', 'duration_minutes': 30}]),
-    ('weight', {'date': '2026-09-06', 'weight': 70.0}),
+    # Changed by the rewiring: get_weight_by_date projects the row into a
+    # fixed shape rather than returning it raw. Current consumers only read
+    # ['weight'], but the projection drops shared_with_chat -- which the
+    # daily-snapshot contract requires rows to carry. Noted for that work.
+    ('weight', {'id': 'w1', 'user_id': 'u1', 'date': '2026-09-06',
+                'weight': 70.0, 'notes': None, 'body_fat_percentage': None,
+                'muscle_mass_kg': None, 'created_at': None,
+                'updated_at': None}),
 ])
 def test_both_builders_agree_on_the_shared_sections(ccm, cs, section, expected):
     from_ccm = run(ccm._fetch_all_daily_activities('u1', DAY))
@@ -134,35 +148,39 @@ def test_a_section_with_no_rows_is_an_empty_dict_not_none(ccm):
 
 
 # ---------------------------------------------------------------------------
-# generate_fresh_context: the fallback path, which reads only four trackers.
+# generate_fresh_context: the fallback path.
 # ---------------------------------------------------------------------------
-def test_fresh_context_reads_only_four_trackers(ccm):
-    """Pins the gap: no sleep, weight, period or supplement read happens here."""
+def test_fresh_context_now_reads_the_whole_shared_day(ccm):
+    """Changed by the rewiring.
+
+    This path used to issue four tracker queries -- meals, exercise, water,
+    steps -- and no others. It now makes one call for the whole shared day, so
+    the tables reached are whatever the store's composed read touches.
+    """
     ccm.supabase_service.get_user_by_id = _returns({'name': 'A', 'tdee': 2000})
     run(ccm.generate_fresh_context('u1', DAY))
 
-    tracker_tables = [t for t in ccm.supabase_service.client.tables_read
-                      if t != 'chat_contexts']
-    assert tracker_tables == ['meal_entries', 'exercise_logs', 'daily_water',
-                              'daily_steps']
+    reached = {t for t in ccm.supabase_service.client.tables_read
+               if t != 'chat_contexts'}
+    assert {'sleep_entries', 'weight_entries', 'period_entries'} <= reached
 
 
-def test_fresh_context_hardcodes_the_trackers_it_never_read(ccm):
-    """weight, sleep and supplements are None/[] regardless of what is logged.
+def test_fresh_context_reports_the_weight_and_sleep_the_user_logged(ccm):
+    """The bug this rewiring fixes.
 
-    The fixture has a weight entry and 7.5h of sleep for this date. This is the
-    bug the rewiring fixes: the fallback context tells the coach the user logged
-    neither.
+    These three fields were hardcoded to None/[] because the path never read
+    those trackers -- so the fallback context told the coach the user had
+    logged neither weight nor sleep, even with both in the database.
     """
     ccm.supabase_service.get_user_by_id = _returns({'name': 'A', 'tdee': 2000})
     result = run(ccm.generate_fresh_context('u1', DAY))
     progress = result['context']['today_progress']
 
-    assert progress['weight'] is None
-    assert progress['sleep_hours'] is None
-    assert progress['supplements_taken'] == []
+    assert progress['weight'] == 70.0
+    assert progress['sleep_hours'] == 7.5
+    assert progress['supplements_taken'] == []   # none in the fixture
 
-    # ...while the trackers it does read come through.
+    # ...and the trackers it always read still come through.
     assert progress['water_glasses'] == 6
     assert progress['steps'] == 8200
     assert progress['meals_logged'] == 1

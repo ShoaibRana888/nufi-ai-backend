@@ -328,49 +328,23 @@ class ChatContextManager:
             if not user:
                 raise Exception("User not found")
             
-            # ACTUALLY FETCH THE DATA FROM THE DATABASE
-            # Get meals for today
-            meals_response = self.supabase_service.client.table('meal_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('meal_date', f"{target_date}T00:00:00")\
-                .lte('meal_date', f"{target_date}T23:59:59")\
-                .eq('shared_with_chat', True)\
-                .execute()
+            # One read for the whole shared day (candidate #1). This path used
+            # to fetch only meals, exercise, water and steps, then hardcode
+            # weight, sleep and supplements as "not logged" -- so the fallback
+            # context told the coach the user had logged neither weight nor
+            # sleep even when they had.
+            activities = await self.supabase_service.get_shared_activities_for_date(
+                user_id, target_date
+            )
 
-            meals = meals_response.data if meals_response.data else []
-            
-            # Get exercises for today  
-            exercise_response = self.supabase_service.client.table('exercise_logs')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('exercise_date', f"{target_date}T00:00:00")\
-                .lte('exercise_date', f"{target_date}T23:59:59")\
-                .eq('shared_with_chat', True)\
-                .execute()
+            meals = activities.get('meals', [])
+            exercises = activities.get('exercise', [])
+            water = activities.get('water', {})
+            steps = activities.get('steps', {})
+            sleep = activities.get('sleep', {})
+            weight = activities.get('weight', {})
+            supplements = activities.get('supplements', {})
 
-            exercises = exercise_response.data if exercise_response.data else []
-            
-            # Get water for today
-            water_response = self.supabase_service.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-
-            water = water_response.data[0] if water_response.data else {}
-            
-            # Get steps for today
-            steps_response = self.supabase_service.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-
-            steps = steps_response.data[0] if steps_response.data else {}
-            
             # Calculate totals from meals
             total_calories = sum(m.get('calories', 0) for m in meals)
             total_protein = sum(m.get('protein_g', 0) for m in meals)
@@ -409,9 +383,9 @@ class ChatContextManager:
                     'exercise_minutes': total_exercise_minutes,
                     'water_glasses': water.get('glasses_consumed', 0),
                     'steps': steps.get('steps', 0),
-                    'weight': None,
-                    'sleep_hours': None,
-                    'supplements_taken': [],
+                    'weight': weight.get('weight') if weight else None,
+                    'sleep_hours': sleep.get('total_hours') if sleep else None,
+                    'supplements_taken': self._get_supplements_taken(supplements),
                     'totals': {
                         'calories': total_calories,
                         'protein': total_protein,
@@ -631,125 +605,21 @@ class ChatContextManager:
             raise
 
     async def _fetch_all_daily_activities(self, user_id: str, target_date: date) -> dict:
-        """Fetch all activities for a specific date - COMPLETE IMPLEMENTATION"""
-        activities = {}
-        
-        try:
-            # Get meals - use correct column name 'meal_date'
-            meals_response = self.supabase_service.client.table('meal_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('meal_date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['meals'] = meals_response.data if meals_response.data else []
-            print(f"  📋 Found {len(activities['meals'])} meals")
-        except Exception as e:
-            print(f"⚠️ Error fetching meals: {e}")
-            activities['meals'] = []
-        
-        try:
-            # Get water intake
-            water_response = self.supabase_service.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['water'] = water_response.data[0] if water_response.data else {}
-            print(f"  💧 Water: {activities['water'].get('glasses_consumed', 0)} glasses")
-        except Exception as e:
-            print(f"⚠️ Error fetching water: {e}")
-            activities['water'] = {}
-        
-        try:
-            # Get exercises
-            exercise_response = self.supabase_service.client.table('exercise_logs')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('exercise_date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['exercise'] = exercise_response.data if exercise_response.data else []
-            print(f"  💪 Found {len(activities['exercise'])} exercises")
-        except Exception as e:
-            print(f"⚠️ Error fetching exercise: {e}")
-            activities['exercise'] = []
-        
-        try:
-            # Get steps
-            steps_response = self.supabase_service.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['steps'] = steps_response.data[0] if steps_response.data else {}
-            print(f"  👣 Steps: {activities['steps'].get('steps', 0)}")
-        except Exception as e:
-            print(f"⚠️ Error fetching steps: {e}")
-            activities['steps'] = {}
-        
-        try:
-            # Get sleep
-            sleep_response = self.supabase_service.client.table('sleep_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
-            print(f"  😴 Sleep: {activities['sleep'].get('total_hours', 0)} hours")
-        except Exception as e:
-            print(f"⚠️ Error fetching sleep: {e}")
-            activities['sleep'] = {}
-        
-        try:
-            # Get weight
-            # weight_entries.date is a timestamptz, so match the whole day with a range.
-            weight_next_day = target_date + timedelta(days=1)
-            weight_response = self.supabase_service.client.table('weight_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', str(target_date))\
-                .lt('date', str(weight_next_day))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['weight'] = weight_response.data[0] if weight_response.data else {}
-            print(f"  ⚖️ Weight: {activities['weight'].get('weight', 'Not logged')} kg")
-        except Exception as e:
-            print(f"⚠️ Error fetching weight: {e}")
-            activities['weight'] = {}
-        
-        try:
-            # Get supplements
-            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(
-                user_id, target_date, shared_only=True
-            )
-            print(f"  💊 Supplements logged")
-        except Exception as e:
-            print(f"⚠️ Error fetching supplements: {e}")
-            activities['supplements'] = {}
-        
-        try:
-            # Get period data (for female users). period_entries has no `date`
-            # column — it spans start_date..end_date — so match the period that
-            # is active on target_date: started on/before it and either still
-            # ongoing (no end_date) or ending on/after it.
-            target_str = str(target_date)
-            period_response = self.supabase_service.client.table('period_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .lte('start_date', target_str)\
-                .or_(f'end_date.is.null,end_date.gte.{target_str}')\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['period'] = period_response.data[0] if period_response.data else {}
-        except Exception as e:
-            # Silent fail for period data (not all users need this)
-            activities['period'] = {}
-        
-        return activities
+        """The user's shared activities for a date.
+
+        Delegates to the store's single read (candidate #1). This used to be
+        seven raw table queries here, including `.eq()` on exercise_date and
+        sleep_entries.date where the store uses a half-open range -- the store
+        form is correct whether the column holds a date or a timestamp, and
+        exercise_date is written both ways.
+
+        Sits in the rebuild-before-every-reply path, so a per-section failure
+        must never fail the whole read; the store keeps sections independent
+        and reports failures under `_read_errors`.
+        """
+        return await self.supabase_service.get_shared_activities_for_date(
+            user_id, target_date
+        )
     
     def _get_supplements_taken(self, supplements_data: Any) -> List[str]:
         """Extract list of supplements taken from supplements data"""

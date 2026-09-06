@@ -148,99 +148,18 @@ class HealthChatService:
         return response
     
     async def get_today_activities(self, user_id: str, target_date: date) -> dict:
-        """Fetch all activities for a specific date"""
-        activities = {}
-        
-        try:
-            # Get today's meals
-            meals_response = self.supabase_service.client.table('meal_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('meal_date', f"{target_date}T00:00:00")\
-                .lte('meal_date', f"{target_date}T23:59:59")\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['meals'] = meals_response.data if meals_response.data else []
-        except Exception as e:
-            print(f"⚠️ Error fetching meals: {e}")
-            activities['meals'] = []
-        
-        try:
-            # Get today's water intake
-            water_response = self.supabase_service.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['water'] = water_response.data[0] if water_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching water: {e}")
-            activities['water'] = {}
-        
-        try:
-            # Get today's exercise
-            exercise_response = self.supabase_service.client.table('exercise_logs')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('exercise_date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['exercise'] = exercise_response.data if exercise_response.data else []
-        except Exception as e:
-            print(f"⚠️ Error fetching exercise: {e}")
-            activities['exercise'] = []
-        
-        try:
-            # Get today's sleep
-            sleep_response = self.supabase_service.client.table('sleep_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching sleep: {e}")
-            activities['sleep'] = {}
-        
-        try:
-            # Get today's supplements
-            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(user_id, target_date, shared_only=True)
-        except Exception as e:
-            print(f"⚠️ Error fetching supplements: {e}")
-            activities['supplements'] = {}
-        
-        try:
-            # Get today's weight
-            # weight_entries.date is a timestamptz, so match the whole day with a range.
-            weight_next_day = target_date + timedelta(days=1)
-            weight_response = self.supabase_service.client.table('weight_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', str(target_date))\
-                .lt('date', str(weight_next_day))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['weight'] = weight_response.data[0] if weight_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching weight: {e}")
-            activities['weight'] = {}
-        
-        try:
-            # Get today's steps
-            steps_response = self.supabase_service.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['steps'] = steps_response.data[0] if steps_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching steps: {e}")
-            activities['steps'] = {}
-        
-        return activities
+        """The user's shared activities for a date.
+
+        Delegates to the store's single read (candidate #1). This used to be
+        six raw table queries here, filtering meal_date differently from every
+        other builder in the codebase. Callers see one extra key,
+        `_read_errors`; every consumer reads named sections via `.get()`, so
+        it is inert for them and available to anything that needs to tell a
+        broken tracker from an empty day.
+        """
+        return await self.supabase_service.get_shared_activities_for_date(
+            user_id, target_date
+        )
     
     async def _get_recent_activity_summary(self, user_id: str) -> Dict[str, Any]:
         """Get recent activity summary for the past week"""
