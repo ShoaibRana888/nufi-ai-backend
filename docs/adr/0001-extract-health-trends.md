@@ -79,9 +79,14 @@ testability" was a promise nothing could keep.
 
 ## Consequences
 
-- The repo has a test suite: 22 tests, and it runs on `pytest` alone — no `openai`, no
-  `supabase`, no environment. That property is worth protecting; the moment a test needs
-  the app's runtime dependencies, the purity seam has moved.
+- The repo has a test suite, and it needs **no environment** — no `SUPABASE_URL`, no keys,
+  no network. That is the property worth protecting.
+  - *Amended while starting candidate #1:* this originally read "runs on `pytest` alone —
+    no `openai`, no `supabase`". That held only while every test covered pure functions.
+    Testing a store method means importing `services/supabase_service.py`, which imports
+    `supabase` at module scope, so `requirements-dev.txt` now pulls in `requirements.txt`.
+    The no-environment property is intact and is the one that matters; "no runtime
+    dependencies" was a side effect of the suite's initial scope, not a design goal.
 - Production code is net **−164 lines** (266 deleted, 102 added across `services/` and
   `api/`), against **+201** of tests and config. 71 sequential database round-trips
   removed from the chat-context path (42 in `chat_service`, 29 in `chat_context_manager`).

@@ -1,4 +1,11 @@
-# Dev/test dependencies. The suite is pure -- it needs neither the app's
-# runtime dependencies nor any environment:
+# Dev/test dependencies:
 #   pip install -r requirements-dev.txt && pytest
+#
+# The suite needs no environment -- no SUPABASE_URL, no keys, no network. It
+# does need the runtime deps importable, because testing a store method means
+# importing services/supabase_service.py, which imports `supabase` at module
+# scope. Pulling in requirements.txt rather than re-pinning a subset here, so
+# the two cannot drift.
+-r requirements.txt
+
 pytest==7.4.4
