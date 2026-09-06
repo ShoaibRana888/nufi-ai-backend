@@ -6,6 +6,7 @@ from services.openai_service import get_openai_service
 from services.supabase_service import get_supabase_service
 from services.weekly_context_manager import get_weekly_context_manager
 from services.guardrails import render_guardrail_prompt, post_check_response
+from services.health_trends import weight_status
 
 class HealthChatService:
     def __init__(self):
@@ -147,154 +148,19 @@ class HealthChatService:
         return response
     
     async def get_today_activities(self, user_id: str, target_date: date) -> dict:
-        """Fetch all activities for a specific date"""
-        activities = {}
-        
-        try:
-            # Get today's meals
-            meals_response = self.supabase_service.client.table('meal_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('meal_date', f"{target_date}T00:00:00")\
-                .lte('meal_date', f"{target_date}T23:59:59")\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['meals'] = meals_response.data if meals_response.data else []
-        except Exception as e:
-            print(f"⚠️ Error fetching meals: {e}")
-            activities['meals'] = []
-        
-        try:
-            # Get today's water intake
-            water_response = self.supabase_service.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['water'] = water_response.data[0] if water_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching water: {e}")
-            activities['water'] = {}
-        
-        try:
-            # Get today's exercise
-            exercise_response = self.supabase_service.client.table('exercise_logs')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('exercise_date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['exercise'] = exercise_response.data if exercise_response.data else []
-        except Exception as e:
-            print(f"⚠️ Error fetching exercise: {e}")
-            activities['exercise'] = []
-        
-        try:
-            # Get today's sleep
-            sleep_response = self.supabase_service.client.table('sleep_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['sleep'] = sleep_response.data[0] if sleep_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching sleep: {e}")
-            activities['sleep'] = {}
-        
-        try:
-            # Get today's supplements
-            activities['supplements'] = await self.supabase_service.get_supplement_status_by_date(user_id, target_date, shared_only=True)
-        except Exception as e:
-            print(f"⚠️ Error fetching supplements: {e}")
-            activities['supplements'] = {}
-        
-        try:
-            # Get today's weight
-            # weight_entries.date is a timestamptz, so match the whole day with a range.
-            weight_next_day = target_date + timedelta(days=1)
-            weight_response = self.supabase_service.client.table('weight_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', str(target_date))\
-                .lt('date', str(weight_next_day))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['weight'] = weight_response.data[0] if weight_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching weight: {e}")
-            activities['weight'] = {}
-        
-        try:
-            # Get today's steps
-            steps_response = self.supabase_service.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(target_date))\
-                .eq('shared_with_chat', True)\
-                .execute()
-            activities['steps'] = steps_response.data[0] if steps_response.data else {}
-        except Exception as e:
-            print(f"⚠️ Error fetching steps: {e}")
-            activities['steps'] = {}
-        
-        return activities
-    
-    async def _get_weekly_summary(self, user_id: str) -> Dict[str, Any]:
-        """Get weekly summary statistics"""
-        try:
-            end_date = datetime.now().date()
-            start_date = end_date - timedelta(days=7)
-            
-            total_calories = 0
-            total_workouts = 0
-            total_sleep_hours = 0
-            sleep_count = 0
-            weight_entries = []
-            
-            for i in range(7):
-                date = start_date + timedelta(days=i)
-                activities = await self.get_today_activities(user_id, date)
-                
-                # Sum up meals
-                meals = activities.get('meals', [])
-                for meal in meals:
-                    total_calories += meal.get('calories', 0)
-                
-                # Count workouts
-                if activities.get('exercise'):
-                    total_workouts += len(activities['exercise'])
-                
-                # Sum sleep
-                if activities.get('sleep') and activities['sleep'].get('total_hours'):
-                    total_sleep_hours += activities['sleep']['total_hours']
-                    sleep_count += 1
-                
-                # Collect weight entries
-                if activities.get('weight') and activities['weight'].get('weight'):
-                    weight_entries.append(activities['weight'])
-            
-            avg_daily_calories = round(total_calories / 7) if total_calories > 0 else 0
-            avg_sleep_hours = round(total_sleep_hours / sleep_count, 1) if sleep_count > 0 else 0
-            weight_trend = self._calculate_weight_trend(weight_entries)
-            
-            return {
-                'avg_daily_calories': avg_daily_calories,
-                'total_workouts': total_workouts,
-                'avg_sleep_hours': avg_sleep_hours,
-                'weight_trend': weight_trend,
-            }
-            
-        except Exception as e:
-            print(f"Error getting weekly summary: {e}")
-            return {
-                'avg_daily_calories': 0,
-                'total_workouts': 0,
-                'avg_sleep_hours': 0,
-                'weight_trend': 'unknown',
-            }
+        """The user's shared activities for a date.
 
+        Delegates to the store's single read (candidate #1). This used to be
+        six raw table queries here, filtering meal_date differently from every
+        other builder in the codebase. Callers see one extra key,
+        `_read_errors`; every consumer reads named sections via `.get()`, so
+        it is inert for them and available to anything that needs to tell a
+        broken tracker from an empty day.
+        """
+        return await self.supabase_service.get_shared_activities_for_date(
+            user_id, target_date
+        )
+    
     async def _get_recent_activity_summary(self, user_id: str) -> Dict[str, Any]:
         """Get recent activity summary for the past week"""
         try:
@@ -375,9 +241,6 @@ class HealthChatService:
             weight = activities.get('weight', {})
             sleep = yesterday_activities.get('sleep', {})  # Use yesterday's sleep
             
-            # Get weekly summary
-            weekly_summary = await self._get_weekly_summary(user_id)
-            
             # Get recent activity
             recent_activity = await self._get_recent_activity_summary(user_id)
             
@@ -413,7 +276,6 @@ class HealthChatService:
                     'sleep_quality': sleep.get('quality', 'Not logged'),
                     'weight_logged': weight.get('weight'),
                 },
-                'weekly_summary': weekly_summary,
                 'goals_progress': {
                     'daily_calorie_goal': user.get('tdee', 2000),
                     'water_goal_glasses': user.get('water_intake_glasses', 8),
@@ -421,7 +283,7 @@ class HealthChatService:
                     'weight_progress': {
                         'current': user.get('weight'),
                         'target': user.get('target_weight'),
-                        'status': self._calculate_weight_status(user.get('weight'), user.get('target_weight'))
+                        'status': weight_status(user.get('weight'), user.get('target_weight'))
                     }
                 },
                 'recent_activity': recent_activity,
@@ -450,73 +312,6 @@ class HealthChatService:
             # Fallback to regular context
             return await self.get_user_context(user_id)
     
-    def _calculate_hydration_consistency(self, water_logs: List[Dict]) -> float:
-        """Calculate water intake consistency"""
-        if not water_logs:
-            return 0
-        
-        days_with_water = len([w for w in water_logs if w.get('glasses', 0) > 0])
-        return round((days_with_water / 7) * 100, 1)
-    
-    def _calculate_avg_calories(self, meals: List[Dict]) -> float:
-        if not meals:
-            return 0
-        
-        # Group by date to calculate daily averages
-        daily_calories = {}
-        for meal in meals:
-            date_key = meal.get('date', '').split('T')[0]
-            calories = meal.get('calories', 0)
-            if date_key:
-                daily_calories[date_key] = daily_calories.get(date_key, 0) + calories
-        
-        if not daily_calories:
-            return 0
-        
-        total_calories = sum(daily_calories.values())
-        return round(total_calories / len(daily_calories), 1)
-    
-    def _calculate_avg_sleep(self, sleep_entries: List[Dict]) -> float:
-        if not sleep_entries:
-            return 0
-        total_hours = sum(entry.get('total_hours', entry.get('sleep_hours', 0)) for entry in sleep_entries)
-        return round(total_hours / len(sleep_entries), 1)
-    
-    def _calculate_weight_status(self, current: float, target: float) -> str:
-        """Calculate weight progress status"""
-        if not current or not target:
-            return 'no_data'
-        
-        diff = abs(current - target)
-        if diff < 0.5:
-            return 'at_goal'
-        elif current > target:
-            return f'lose_{diff:.1f}kg'
-        else:
-            return f'gain_{diff:.1f}kg'
-
-    def _calculate_weight_trend(self, weight_entries: List[Dict]) -> str:
-        """Calculate weight trend from entries"""
-        if len(weight_entries) < 2:
-            return 'insufficient_data'
-        
-        # Sort by date
-        sorted_entries = sorted(weight_entries, key=lambda x: x.get('date', ''))
-        
-        if len(sorted_entries) >= 2:
-            first_weight = sorted_entries[0].get('weight', 0)
-            last_weight = sorted_entries[-1].get('weight', 0)
-            change = last_weight - first_weight
-            
-            if abs(change) < 0.2:
-                return 'stable'
-            elif change > 0:
-                return f'gaining_{abs(change):.1f}kg'
-            else:
-                return f'losing_{abs(change):.1f}kg'
-        
-        return 'insufficient_data'
-        
     def _get_empty_context(self) -> Dict[str, Any]:
         """Return empty context structure when error occurs"""
         return {
@@ -536,12 +331,6 @@ class HealthChatService:
                 'sleep_hours': 0,
                 'sleep_quality': 'Not logged',
                 'weight_logged': None,
-            },
-            'weekly_summary': {
-                'avg_daily_calories': 0,
-                'total_workouts': 0,
-                'avg_sleep_hours': 0,
-                'weight_trend': 'unknown',
             },
             'goals_progress': {
                 'daily_calorie_goal': 2000,

@@ -6,6 +6,7 @@ import uuid
 from models.weight_schemas import WeightEntryCreate
 from services.supabase_service import get_supabase_service
 from services.chat_context_manager import get_context_manager
+from services.health_trends import weight_direction
 from utils.timezone_utils import get_timezone_offset, get_user_now
 
 router = APIRouter()
@@ -185,18 +186,7 @@ async def get_weight_stats(user_id: str, days: int = 30):
         weights = [entry.get('weight', 0) for entry in entries]
         avg_weight = sum(weights) / len(weights)
 
-        # Determine trend
-        if len(weights) >= 2:
-            total_change = weights[0] - weights[-1]
-            if total_change > 0.5:
-                trend = "gaining"
-            elif total_change < -0.5:
-                trend = "losing"
-            else:
-                trend = "stable"
-        else:
-            total_change = 0
-            trend = "stable"
+        trend, total_change = weight_direction(weights)
 
         stats = {
             "average_weight": round(avg_weight, 1),
