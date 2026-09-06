@@ -450,38 +450,6 @@ class HealthChatService:
             # Fallback to regular context
             return await self.get_user_context(user_id)
     
-    def _calculate_hydration_consistency(self, water_logs: List[Dict]) -> float:
-        """Calculate water intake consistency"""
-        if not water_logs:
-            return 0
-        
-        days_with_water = len([w for w in water_logs if w.get('glasses', 0) > 0])
-        return round((days_with_water / 7) * 100, 1)
-    
-    def _calculate_avg_calories(self, meals: List[Dict]) -> float:
-        if not meals:
-            return 0
-        
-        # Group by date to calculate daily averages
-        daily_calories = {}
-        for meal in meals:
-            date_key = meal.get('date', '').split('T')[0]
-            calories = meal.get('calories', 0)
-            if date_key:
-                daily_calories[date_key] = daily_calories.get(date_key, 0) + calories
-        
-        if not daily_calories:
-            return 0
-        
-        total_calories = sum(daily_calories.values())
-        return round(total_calories / len(daily_calories), 1)
-    
-    def _calculate_avg_sleep(self, sleep_entries: List[Dict]) -> float:
-        if not sleep_entries:
-            return 0
-        total_hours = sum(entry.get('total_hours', entry.get('sleep_hours', 0)) for entry in sleep_entries)
-        return round(total_hours / len(sleep_entries), 1)
-    
     def _calculate_weight_status(self, current: float, target: float) -> str:
         """Calculate weight progress status"""
         if not current or not target:
