@@ -6,6 +6,7 @@ from services.openai_service import get_openai_service
 from services.supabase_service import get_supabase_service
 from services.weekly_context_manager import get_weekly_context_manager
 from services.guardrails import render_guardrail_prompt, post_check_response
+from services.health_trends import weight_status, weight_trend
 
 class HealthChatService:
     def __init__(self):
@@ -277,13 +278,13 @@ class HealthChatService:
             
             avg_daily_calories = round(total_calories / 7) if total_calories > 0 else 0
             avg_sleep_hours = round(total_sleep_hours / sleep_count, 1) if sleep_count > 0 else 0
-            weight_trend = self._calculate_weight_trend(weight_entries)
+            trend = weight_trend(weight_entries)
             
             return {
                 'avg_daily_calories': avg_daily_calories,
                 'total_workouts': total_workouts,
                 'avg_sleep_hours': avg_sleep_hours,
-                'weight_trend': weight_trend,
+                'weight_trend': trend,
             }
             
         except Exception as e:
@@ -421,7 +422,7 @@ class HealthChatService:
                     'weight_progress': {
                         'current': user.get('weight'),
                         'target': user.get('target_weight'),
-                        'status': self._calculate_weight_status(user.get('weight'), user.get('target_weight'))
+                        'status': weight_status(user.get('weight'), user.get('target_weight'))
                     }
                 },
                 'recent_activity': recent_activity,
@@ -450,41 +451,6 @@ class HealthChatService:
             # Fallback to regular context
             return await self.get_user_context(user_id)
     
-    def _calculate_weight_status(self, current: float, target: float) -> str:
-        """Calculate weight progress status"""
-        if not current or not target:
-            return 'no_data'
-        
-        diff = abs(current - target)
-        if diff < 0.5:
-            return 'at_goal'
-        elif current > target:
-            return f'lose_{diff:.1f}kg'
-        else:
-            return f'gain_{diff:.1f}kg'
-
-    def _calculate_weight_trend(self, weight_entries: List[Dict]) -> str:
-        """Calculate weight trend from entries"""
-        if len(weight_entries) < 2:
-            return 'insufficient_data'
-        
-        # Sort by date
-        sorted_entries = sorted(weight_entries, key=lambda x: x.get('date', ''))
-        
-        if len(sorted_entries) >= 2:
-            first_weight = sorted_entries[0].get('weight', 0)
-            last_weight = sorted_entries[-1].get('weight', 0)
-            change = last_weight - first_weight
-            
-            if abs(change) < 0.2:
-                return 'stable'
-            elif change > 0:
-                return f'gaining_{abs(change):.1f}kg'
-            else:
-                return f'losing_{abs(change):.1f}kg'
-        
-        return 'insufficient_data'
-        
     def _get_empty_context(self) -> Dict[str, Any]:
         """Return empty context structure when error occurs"""
         return {

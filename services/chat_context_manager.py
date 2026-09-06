@@ -4,6 +4,7 @@ from datetime import datetime, date, timedelta
 import json
 from services.supabase_service import get_supabase_service
 from services.guardrails import compute_body_state
+from services.health_trends import weight_status, weight_trend
 
 class ChatContextManager:
     def __init__(self):
@@ -586,8 +587,8 @@ class ChatContextManager:
                     'weight_progress': {
                         'current': user.get('weight'),
                         'target': user.get('target_weight'),
-                        'status': self._calculate_weight_status(
-                            user.get('weight'), 
+                        'status': weight_status(
+                            user.get('weight'),
                             user.get('target_weight')
                         )
                     }
@@ -841,7 +842,7 @@ class ChatContextManager:
                 end_date=str(end_date),
                 shared_only=True
             )
-            summary['weight_trend'] = self._calculate_weight_trend(weight_entries)
+            summary['weight_trend'] = weight_trend(weight_entries)
             
             return summary
             
@@ -854,41 +855,6 @@ class ChatContextManager:
                 'weight_trend': 'unknown'
             }
 
-    def _calculate_weight_status(self, current: float, target: float) -> str:
-        """Calculate weight progress status"""
-        if not current or not target:
-            return 'no_data'
-        
-        diff = abs(current - target)
-        if diff < 0.5:
-            return 'at_goal'
-        elif current > target:
-            return f'lose_{diff:.1f}kg'
-        else:
-            return f'gain_{diff:.1f}kg'
-
-    def _calculate_weight_trend(self, weight_entries: List[Dict]) -> str:
-        """Calculate weight trend from entries"""
-        if len(weight_entries) < 2:
-            return 'insufficient_data'
-        
-        # Sort by date
-        sorted_entries = sorted(weight_entries, key=lambda x: x.get('date', ''))
-        
-        if len(sorted_entries) >= 2:
-            first_weight = sorted_entries[0].get('weight', 0)
-            last_weight = sorted_entries[-1].get('weight', 0)
-            change = last_weight - first_weight
-            
-            if abs(change) < 0.2:
-                return 'stable'
-            elif change > 0:
-                return f'gaining_{abs(change):.1f}kg'
-            else:
-                return f'losing_{abs(change):.1f}kg'
-        
-        return 'insufficient_data'
-    
     def deduplicate_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Remove duplicate entries from context"""
         
