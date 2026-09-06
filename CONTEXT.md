@@ -26,8 +26,15 @@ designed interface, not an accident.
   Entries not shared are excluded from chat context.
 - **Shared activities for a date** *(emerging term)* — the set of a user's shared entries
   across all trackers on one date. It has no single read yet: the context builders
-  re-derive it with ~70 raw `.client.table(...)` calls across 15 files outside the store.
-  Candidate #1 gives it one home: `supabase_service.get_shared_activities_for_date(user_id, date)`.
+  re-derive it with **17 leaked reads across 3 files** — `chat_context_manager`,
+  `chat_service`, `weekly_context_manager` (meals 3, exercise 3, water 3, steps 3,
+  weight 2, sleep 2, period 1). Candidate #1 gives it one home:
+  `supabase_service.get_shared_activities_for_date(user_id, date)`.
+  - Earlier drafts sized this as "~70 calls across 15 files". That is the count of **all**
+    leaked reads in the repo, which is a different and much larger set: the context
+    builders' own `chat_contexts` / `weekly_contexts` persistence (13), plus notifications,
+    FCM, debug, meal suggestions. Those are separate concerns and separate decisions —
+    don't fold them into #1's scope on the strength of sharing a code smell.
 - **Coach** — the AI chat assistant (`chat_service` + `openai_service`). Answers using
   chat context.
 - **Chat context** — the digest of a user's recent tracker data fed to the coach.
@@ -78,9 +85,20 @@ designed interface, not an accident.
 - **Leaked read** — a raw `.client.table(...)` call made *outside* the store (context
   builders and several endpoints). These are what candidate #1 pulls back behind the
   store's interface.
-- **`log_daily_metric` use-case** *(emerging term)* — candidate #4. Endpoints currently
-  repeat "upsert-by-date, then remember to refresh chat context"; forgetting the refresh
-  is a real bug class. This use-case owns that flow as one atomic move.
+- **`log_daily_metric` use-case** *(emerging term)* — candidate #4. Endpoints repeat
+  "upsert-by-date, then remember to refresh chat context", and this use-case would own
+  that flow as one atomic move. **Its stated justification does not hold as written** and
+  it should be re-grilled before anyone builds it:
+  - The claim is that forgetting the refresh is a real bug class. `api/periods.py` does
+    have 4 write endpoints and no refresh call at all — and period data reaches the coach's
+    safety guardrail via `compute_period_status`.
+  - But `chat_service.generate_chat_response` calls `rebuild_context` **unconditionally
+    before every reply**, so the coach never reads a stale context. The bug is already
+    defended, bluntly, by rebuilding every turn.
+  - Which inverts the question. Not "how do we make every write refresh?" but "given the
+    read path rebuilds anyway, what are the ~28 refresh calls scattered across the write
+    endpoints buying?" The stale-cache exposure that remains is
+    `GET /chat/context/{user_id}`, which serves cached context without rebuilding.
 
 ## Conventions
 
