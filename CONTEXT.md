@@ -89,11 +89,19 @@ designed interface, not an accident.
 
 ## Data access vocabulary (the architecture work touches this)
 
-- **The store** — `services/supabase_service.py` (1,925 lines, 86 methods). The single
-  module that should own table access. Its interface is currently nearly as wide as its
-  implementation: each tracker repeats the same CRUD family (create / update /
-  get_by_date / get_by_date+shared / history / range / delete). Candidate #2 collapses
-  this into a **daily-metric store** keyed by a metric descriptor.
+- **The store** — `services/supabase_service.py`, the single module that should own table
+  access. Candidate #2 proposed collapsing it into a **daily-metric store** keyed by a
+  metric descriptor, on the premise that "each tracker repeats the same CRUD family". The
+  inventory did not support that, and the descriptor was **not built** — see
+  [ADR-0003](docs/adr/0003-no-daily-metric-store.md). What the cleanup did instead:
+  - Deleted 7 methods with no caller anywhere, including three of the four range reads.
+  - Collapsed three duplicate by-date pairs onto their shared-aware versions.
+  - Locked the by-date read surface with a test, so a second door for the same question
+    fails the suite rather than waiting to be picked by mistake.
+- **One question, one read.** Where a tracker has two ways to ask the same thing, one of
+  them will not respect `shared_with_chat`, and its name will not say so. That is how the
+  water/steps/sleep pairs arose — and in all three the unsafe variant was the *more* used
+  one. `tests/test_store_by_date_surface.py` now pins the surface.
 - **Leaked read** — a raw `.client.table(...)` call made *outside* the store. The
   context builders have none left: candidate #1 pulled all 17 behind
   `get_shared_activities_for_date`. What remains is two distinct groups, and neither is
