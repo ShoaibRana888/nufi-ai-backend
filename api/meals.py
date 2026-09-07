@@ -845,12 +845,17 @@ async def get_nutrition_trends(
         
         daily_data = response.data or []
         
-        # Get exercise data for the same period
+        # Get exercise data for the same period. exercise_date is a
+        # timestamptz, so the range must be half-open: .lte(end_date)
+        # compares against midnight and drops the final day's workouts.
+        # (The daily_nutrition read above filters a real `date` column --
+        # its .lte is inclusive and correct. See CONTEXT.md, "Entry date
+        # columns are not one type".)
         exercise_response = supabase_service.client.table('exercise_logs')\
             .select('exercise_date, calories_burned')\
             .eq('user_id', user_id)\
             .gte('exercise_date', str(start_date))\
-            .lte('exercise_date', str(end_date))\
+            .lt('exercise_date', str(end_date + timedelta(days=1)))\
             .execute()
         
         # Aggregate exercise by date
