@@ -515,21 +515,6 @@ class SupabaseService:
             return []
         
     # water functions
-    async def get_water_entry_by_date(self, user_id: str, entry_date: date) -> Optional[Dict[str, Any]]:
-        """Get water entry for a specific date"""
-        try:
-            response = self.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(entry_date))\
-                .execute()
-            
-            if response.data:
-                return response.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error getting water entry by date: {e}")
-            return None
         
     async def get_water_by_date(self, user_id: str, date: date, shared_only: bool = False) -> Optional[Dict[str, Any]]:
         """Get water intake for a specific date.
@@ -659,21 +644,6 @@ class SupabaseService:
             print(f"❌ Error updating step entry: {e}")
             raise Exception(f"Failed to update step entry: {str(e)}")
 
-    async def get_step_entry_by_date(self, user_id: str, entry_date: date) -> Optional[Dict[str, Any]]:
-        """Get step entry for a specific date"""
-        try:
-            response = self.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(entry_date))\
-                .execute()
-            
-            if response.data:
-                return response.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error getting step entry by date: {e}")
-            return None
 
     async def get_step_history(self, user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
         """Get step history for a user"""
@@ -1021,21 +991,6 @@ class SupabaseService:
             print(f"❌ Error updating sleep entry: {e}")
             raise Exception(f"Failed to update sleep entry: {str(e)}")
 
-    async def get_sleep_entry_by_date(self, user_id: str, entry_date: date) -> Optional[Dict[str, Any]]:
-        """Get sleep entry for a specific date"""
-        try:
-            response = self.client.table('sleep_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(entry_date))\
-                .execute()
-            
-            if response.data:
-                return response.data[0]
-            return None
-        except Exception as e:
-            print(f"❌ Error getting sleep entry by date: {e}")
-            return None
         
     async def get_sleep_by_date(self, user_id: str, date: date, shared_only: bool = False) -> Optional[Dict[str, Any]]:
         """Get sleep entry for a specific date.
