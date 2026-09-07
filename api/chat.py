@@ -157,7 +157,7 @@ async def fix_today_context(user_id: str):
             'error': str(e)
         }
     
-@router.post("/chat/rebuild-context")
+@router.post("/rebuild-context")
 async def rebuild_chat_context(request: Dict[str, Any]):
     """Rebuild chat context from source tables"""
     try:
@@ -180,7 +180,7 @@ async def rebuild_chat_context(request: Dict[str, Any]):
         print(f"Error rebuilding context: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.get("/chat/context/check/{user_id}")
+@router.get("/context/check/{user_id}")
 async def check_context_date(user_id: str):
     """Check if context needs daily reset"""
     try:
@@ -216,7 +216,7 @@ async def check_context_date(user_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/chat/context/daily-reset/{user_id}")
+@router.post("/context/daily-reset/{user_id}")
 async def daily_context_reset(user_id: str):
     """Create fresh context for a new day"""
     try:

@@ -1,0 +1,106 @@
+# Every HTTP path nufi_app's ApiClient calls, as of nufi_app fc596f1
+# (origin/master). One "METHOD /path" per line, relative to ApiClient.baseUrl
+# (".../api/health"); Dart interpolations are replaced with the literal X.
+#
+# Regenerate from a nufi_app checkout with:
+#
+#   python3 - <<'EOF'
+#   import re, pathlib
+#   src = "".join(p.read_text() for p in
+#                 pathlib.Path("lib/data/services/api").glob("*.dart"))
+#   pat = re.compile(r"_client\.(get|post|put|patch|delete)\s*\(\s*'([^']*)'")
+#   for m in sorted({(m.group(1).upper(),
+#                     re.sub(r"\$\{[^}]*\}|\$[A-Za-z_]\w*", "X",
+#                            m.group(2).split("?")[0]))
+#                    for m in pat.finditer(src)}):
+#       print(*m)
+#   EOF
+#
+# The regex must tolerate newlines between "(" and the path: a line-based grep
+# misses 27 of these, nearly every write call, because the body argument pushes
+# the path onto its own line.
+#
+# This is the HTTP contract between the two repos -- the only real coupling
+# (CONTEXT.md). tests/test_client_contract.py asserts every line here reaches a
+# route. It cannot see paths the client adds after this snapshot, so refresh it
+# when the client's API surface changes.
+DELETE /chat/history/X
+DELETE /chat/messages/X
+DELETE /exercise/X
+DELETE /exercise/log/X
+DELETE /meals/X
+DELETE /meals/presets/X
+DELETE /period/X
+DELETE /sleep/entries/X
+DELETE /steps/X/X
+DELETE /users/X
+DELETE /weight/X
+GET /chat/context/X
+GET /chat/context/cached/X
+GET /chat/context/check/X
+GET /chat/history/XX
+GET /chat/messages/X
+GET /check
+GET /daily-summary/X
+GET /exercise/stats/X
+GET /exercise/weekly-summary/X
+GET /frameworks/compare
+GET /meals/energy-balance/X
+GET /meals/macro-breakdown/X
+GET /meals/micronutrients/X
+GET /meals/presets/X
+GET /meals/remaining-macros/X
+GET /meals/trends/X
+GET /period/X
+GET /period/X/current
+GET /sharing/X/defaults
+GET /sleep/entries/X/X
+GET /sleep/stats/X
+GET /steps/X
+GET /steps/X/range
+GET /steps/X/stats
+GET /steps/X/today
+GET /supplements/X/history
+GET /supplements/X/status
+GET /supplements/preferences/X
+GET /supplements/status/X
+GET /user/X/framework
+GET /users/X
+GET /water/X
+GET /water/X/stats
+GET /water/X/today
+GET /weekly/context/XX
+GET /weekly/recent/X
+GET /weekly/summary/X
+GET /weight/X
+GET /weight/X/latest
+PATCH /sharing/X
+PATCH /user/X/weight
+POST /auth/login
+POST /chat
+POST /chat/context/daily-reset/X
+POST /chat/context/rebuild/X
+POST /chat/context/update/X
+POST /exercise/log
+POST /login
+POST /meals/analyze
+POST /meals/presets/X/use
+POST /meals/presets/create
+POST /onboarding/complete
+POST /period
+POST /period/custom
+POST /sleep/entries
+POST /steps
+POST /suggestions/meals
+POST /supplements/log
+POST /supplements/preferences
+POST /user/X/set-starting-weight
+POST /water
+POST /weekly/rebuild/X
+POST /weight
+PUT /exercise/X
+PUT /meals/X
+PUT /period/X/end
+PUT /sharing/X/defaults
+PUT /sleep/entries/X
+PUT /users/update-user/X
