@@ -9,3 +9,8 @@
 -r requirements.txt
 
 pytest==7.4.4
+
+# fastapi.testclient needs httpx. It is already installed transitively (via
+# supabase), but the suite imports it directly now -- declared here so a
+# dependency bump that drops it fails at install rather than at import.
+httpx==0.27.2
