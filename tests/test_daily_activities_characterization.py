@@ -124,13 +124,13 @@ def test_both_builders_now_return_the_same_sections(ccm, cs):
     ('sleep', {'total_hours': 7.5, 'quality_score': 0.8}),
     ('exercise', [{'exercise_name': 'run', 'duration_minutes': 30}]),
     # Changed by the rewiring: get_weight_by_date projects the row into a
-    # fixed shape rather than returning it raw. Current consumers only read
-    # ['weight'], but the projection drops shared_with_chat -- which the
-    # daily-snapshot contract requires rows to carry. Noted for that work.
+    # fixed shape rather than returning it raw. The projection originally
+    # dropped shared_with_chat; the daily-snapshot work widened it to keep the
+    # flag, because that contract requires every row to carry it (ADR-0004).
     ('weight', {'id': 'w1', 'user_id': 'u1', 'date': '2026-09-06',
                 'weight': 70.0, 'notes': None, 'body_fat_percentage': None,
-                'muscle_mass_kg': None, 'created_at': None,
-                'updated_at': None}),
+                'muscle_mass_kg': None, 'shared_with_chat': True,
+                'created_at': None, 'updated_at': None}),
 ])
 def test_both_builders_agree_on_the_shared_sections(ccm, cs, section, expected):
     from_ccm = run(ccm._fetch_all_daily_activities('u1', DAY))

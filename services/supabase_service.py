@@ -306,25 +306,26 @@ class SupabaseService:
         Pass shared_only=True for AI/chat context reads so meals the user has
         hidden (shared_with_chat=False) are excluded. Leave False for the
         user's own views (history, reminders) which should see everything.
-        """
-        try:
-            next_day = date + timedelta(days=1)
 
-            query = self.client.table('meal_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('meal_date', str(date))\
-                .lt('meal_date', str(next_day))
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-            response = query.execute()
-            
-            meals = response.data if response.data else []
-            print(f"✅ Found {len(meals)} meals for {date}")
-            return meals
-        except Exception as e:
-            print(f"❌ Error getting meals by date: {e}")
-            return []
+        Raises rather than swallowing: a failed read and a day with
+        nothing logged are different answers, and callers -- the
+        by-date composition above all -- must be able to tell them
+        apart. See ADR-0004.
+        """
+        next_day = date + timedelta(days=1)
+
+        query = self.client.table('meal_entries')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .gte('meal_date', str(date))\
+            .lt('meal_date', str(next_day))
+        if shared_only:
+            query = query.eq('shared_with_chat', True)
+        response = query.execute()
+
+        meals = response.data if response.data else []
+        print(f"✅ Found {len(meals)} meals for {date}")
+        return meals
         
     async def create_meal_preset(self, preset_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new meal preset"""
@@ -521,30 +522,29 @@ class SupabaseService:
 
         Pass shared_only=True for AI/chat context reads to exclude days the
         user has hidden (shared_with_chat=False).
+
+        Raises rather than swallowing: a failed read and a day with
+        nothing logged are different answers, and callers -- the
+        by-date composition above all -- must be able to tell them
+        apart. See ADR-0004.
         """
-        try:
-            print(f"🔍 Getting water for user: {user_id}, date: {date}")
+        print(f"🔍 Getting water for user: {user_id}, date: {date}")
 
-            query = self.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(date))
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-            response = query.execute()
+        query = self.client.table('daily_water')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))
+        if shared_only:
+            query = query.eq('shared_with_chat', True)
+        response = query.execute()
 
-            if response.data:
-                entry = response.data[0]
-                print(f"✅ Found water entry for {date}: {entry.get('glasses_consumed')} glasses")
-                return entry
-            
-            print(f"ℹ️ No water entry found for {date}")
-            return None
-        except Exception as e:
-            print(f"❌ Error getting water by date: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        if response.data:
+            entry = response.data[0]
+            print(f"✅ Found water entry for {date}: {entry.get('glasses_consumed')} glasses")
+            return entry
+
+        print(f"ℹ️ No water entry found for {date}")
+        return None
 
     async def delete_water_entry(self, entry_id: str):
         """Delete water entry"""
@@ -728,30 +728,29 @@ class SupabaseService:
 
         Pass shared_only=True for AI/chat context reads to exclude days the
         user has hidden (shared_with_chat=False).
-        """
-        try:
-            print(f"🔍 Getting steps for user: {user_id}, date: {date}")
 
-            query = self.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(date))
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-            response = query.execute()
-            
-            if response.data:
-                entry = response.data[0]
-                print(f"✅ Found step entry for {date}: {entry.get('steps')} steps")
-                return entry
-            
-            print(f"ℹ️ No step entry found for {date}")
-            return None
-        except Exception as e:
-            print(f"❌ Error getting steps by date: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        Raises rather than swallowing: a failed read and a day with
+        nothing logged are different answers, and callers -- the
+        by-date composition above all -- must be able to tell them
+        apart. See ADR-0004.
+        """
+        print(f"🔍 Getting steps for user: {user_id}, date: {date}")
+
+        query = self.client.table('daily_steps')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .eq('date', str(date))
+        if shared_only:
+            query = query.eq('shared_with_chat', True)
+        response = query.execute()
+
+        if response.data:
+            entry = response.data[0]
+            print(f"✅ Found step entry for {date}: {entry.get('steps')} steps")
+            return entry
+
+        print(f"ℹ️ No step entry found for {date}")
+        return None
     
     
     # Weight functions
@@ -867,47 +866,52 @@ class SupabaseService:
 
         Pass shared_only=True for AI/chat context reads to exclude entries the
         user has hidden (shared_with_chat=False).
-        """
-        try:
-            print(f"🔍 Getting weight for user: {user_id}, date: {date}")
 
-            # weight_entries.date is a timestamptz (e.g. "2026-06-24T02:00:00+00"),
-            # so an exact .eq('date', 'YYYY-MM-DD') never matches. Match the whole
-            # day with a range instead.
-            next_day = date + timedelta(days=1)
-            query = self.client.table('weight_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', str(date))\
-                .lt('date', str(next_day))\
-                .order('date', desc=True)\
-                .limit(1)
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-            response = query.execute()
-            
-            if response.data:
-                entry = response.data[0]
-                print(f"✅ Found weight entry for {date}: {entry.get('weight')}kg")
-                return {
-                    'id': entry['id'],
-                    'user_id': entry['user_id'],
-                    'date': entry['date'],
-                    'weight': float(entry.get('weight', 0.0)),
-                    'notes': entry.get('notes'),
-                    'body_fat_percentage': float(entry['body_fat_percentage']) if entry.get('body_fat_percentage') else None,
-                    'muscle_mass_kg': float(entry['muscle_mass_kg']) if entry.get('muscle_mass_kg') else None,
-                    'created_at': entry.get('created_at'),
-                    'updated_at': entry.get('updated_at')
-                }
-            
-            print(f"ℹ️ No weight entry found for {date}")
-            return None
-        except Exception as e:
-            print(f"❌ Error getting weight by date: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        The returned row is a projection, not the raw record, and it carries
+        `shared_with_chat` because the daily-snapshot contract requires every
+        row to. Widened here rather than read raw for the snapshot, so the
+        column cannot go missing on one caller's path only.
+
+        Raises rather than swallowing: a failed read and a day with
+        nothing logged are different answers, and callers -- the
+        by-date composition above all -- must be able to tell them
+        apart. See ADR-0004.
+        """
+        print(f"🔍 Getting weight for user: {user_id}, date: {date}")
+
+        # weight_entries.date is a timestamptz (e.g. "2026-06-24T02:00:00+00"),
+        # so an exact .eq('date', 'YYYY-MM-DD') never matches. Match the whole
+        # day with a range instead.
+        next_day = date + timedelta(days=1)
+        query = self.client.table('weight_entries')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .gte('date', str(date))\
+            .lt('date', str(next_day))\
+            .order('date', desc=True)\
+            .limit(1)
+        if shared_only:
+            query = query.eq('shared_with_chat', True)
+        response = query.execute()
+
+        if response.data:
+            entry = response.data[0]
+            print(f"✅ Found weight entry for {date}: {entry.get('weight')}kg")
+            return {
+                'id': entry['id'],
+                'user_id': entry['user_id'],
+                'date': entry['date'],
+                'weight': float(entry.get('weight', 0.0)),
+                'notes': entry.get('notes'),
+                'body_fat_percentage': float(entry['body_fat_percentage']) if entry.get('body_fat_percentage') else None,
+                'muscle_mass_kg': float(entry['muscle_mass_kg']) if entry.get('muscle_mass_kg') else None,
+                'shared_with_chat': entry.get('shared_with_chat'),
+                'created_at': entry.get('created_at'),
+                'updated_at': entry.get('updated_at')
+            }
+
+        print(f"ℹ️ No weight entry found for {date}")
+        return None
         
     async def update_user_weight(self, user_id: str, weight: float) -> bool:
         """Update user's current weight in the users table"""
@@ -997,27 +1001,28 @@ class SupabaseService:
 
         Pass shared_only=True for AI/chat context reads to exclude entries the
         user has hidden (shared_with_chat=False).
-        """
-        try:
-            next_day = date + timedelta(days=1)
 
-            query = self.client.table('sleep_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', str(date))\
-                .lt('date', str(next_day))
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-            response = query.execute()
-            
-            if response.data:
-                print(f"✅ Found sleep entry for {date}: {response.data[0].get('total_hours')}h")
-                return response.data[0]
-            
-            return None
-        except Exception as e:
-            print(f"❌ Error getting sleep by date: {e}")
-            return None
+        Raises rather than swallowing: a failed read and a day with
+        nothing logged are different answers, and callers -- the
+        by-date composition above all -- must be able to tell them
+        apart. See ADR-0004.
+        """
+        next_day = date + timedelta(days=1)
+
+        query = self.client.table('sleep_entries')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .gte('date', str(date))\
+            .lt('date', str(next_day))
+        if shared_only:
+            query = query.eq('shared_with_chat', True)
+        response = query.execute()
+
+        if response.data:
+            print(f"✅ Found sleep entry for {date}: {response.data[0].get('total_hours')}h")
+            return response.data[0]
+
+        return None
         
     async def get_sleep_entry_by_id(self, entry_id: str):
         """Get sleep entry by ID"""
@@ -1159,33 +1164,34 @@ class SupabaseService:
 
         Pass shared_only=True for AI/chat context reads to exclude logs the
         user has hidden (shared_with_chat=False).
-        """
-        try:
-            print(f"🔍 Getting supplements for user: {user_id}, date: {entry_date}")
 
-            query = self.client.table('supplement_logs')\
-                .select('supplement_name, taken')\
-                .eq('user_id', user_id)\
-                .eq('date', str(entry_date))
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-            response = query.execute()
-            
-            status = {}
-            if response.data:
-                for log in response.data:
-                    status[log['supplement_name']] = {
-                        'taken': log['taken'],
-                        'supplement_name': log['supplement_name']
-                    }
-                print(f"✅ Found {len(status)} supplement logs for {entry_date}")
-            else:
-                print(f"ℹ️ No supplement logs found for {entry_date}")
-            
-            return status
-        except Exception as e:
-            print(f"❌ Error getting supplement status by date: {e}")
-            return {}
+        Raises rather than swallowing: a failed read and a day with
+        nothing logged are different answers, and callers -- the
+        by-date composition above all -- must be able to tell them
+        apart. See ADR-0004.
+        """
+        print(f"🔍 Getting supplements for user: {user_id}, date: {entry_date}")
+
+        query = self.client.table('supplement_logs')\
+            .select('supplement_name, taken')\
+            .eq('user_id', user_id)\
+            .eq('date', str(entry_date))
+        if shared_only:
+            query = query.eq('shared_with_chat', True)
+        response = query.execute()
+
+        status = {}
+        if response.data:
+            for log in response.data:
+                status[log['supplement_name']] = {
+                    'taken': log['taken'],
+                    'supplement_name': log['supplement_name']
+                }
+            print(f"✅ Found {len(status)} supplement logs for {entry_date}")
+        else:
+            print(f"ℹ️ No supplement logs found for {entry_date}")
+
+        return status
 
     async def get_supplement_history(self, user_id: str, supplement_name: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
         """Get supplement history for a user"""
@@ -1338,25 +1344,26 @@ class SupabaseService:
 
         Pass shared_only=True for AI/chat context reads to exclude entries the
         user has hidden (shared_with_chat=False).
-        """
-        try:
-            next_day = date + timedelta(days=1)
 
-            query = self.client.table('exercise_logs')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('exercise_date', str(date))\
-                .lt('exercise_date', str(next_day))
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-            response = query.execute()
-            
-            exercises = response.data or []
-            print(f"✅ Found {len(exercises)} exercises for {date}")
-            return exercises
-        except Exception as e:
-            print(f"❌ Error getting exercises by date: {e}")
-            return []
+        Raises rather than swallowing: a failed read and a day with
+        nothing logged are different answers, and callers -- the
+        by-date composition above all -- must be able to tell them
+        apart. See ADR-0004.
+        """
+        next_day = date + timedelta(days=1)
+
+        query = self.client.table('exercise_logs')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .gte('exercise_date', str(date))\
+            .lt('exercise_date', str(next_day))
+        if shared_only:
+            query = query.eq('shared_with_chat', True)
+        response = query.execute()
+
+        exercises = response.data or []
+        print(f"✅ Found {len(exercises)} exercises for {date}")
+        return exercises
 
     # Period methods
     async def create_period_entry(self, period_data: Dict[str, Any]) -> Dict[str, Any]:
