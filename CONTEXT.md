@@ -167,6 +167,20 @@ designed interface, not an accident.
   registration order; the first wins with no warning. Twenty-odd routers share a handful
   of prefixes here, and it has already happened once (`/daily-summary`).
   `tests/test_no_shadowed_routes.py` fails on any duplicated path+method.
+- **A route can also be served where nobody looks.** `APIRouter(prefix=...)` applies the
+  prefix *at decoration time*, so a decorator that spells the prefix out again produces
+  `/chat/chat/...`. Three of `api/chat.py`'s routes did, and two of them are called by
+  the client on app open and chat open — `checkAndResetDailyContext` swallows the 404 and
+  returns `false`, so the daily context reset had never once run.
+  `tests/test_router_prefixes.py` pins the structural rule.
+- **The HTTP contract with `nufi_app` is now enforced, not just asserted.**
+  `tests/test_client_contract.py` holds a snapshot of all 80 paths the client's
+  `ApiClient` calls and fails if one reaches no route here. It catches the direction that
+  fails silently — the backend not serving what the client already calls — and cannot see
+  paths the client adds after the snapshot, so **refresh the fixture when the client's API
+  surface changes**. Three client calls reach nothing today; all three are dead client
+  methods with zero callers, listed as documented exceptions with a test that they stay
+  unserved.
 - **Leaked read** — a raw `.client.table(...)` call made *outside* the store. The
   context builders have none left: candidate #1 pulled all 17 behind
   `get_shared_activities_for_date`. What remains is two distinct groups, and neither is
