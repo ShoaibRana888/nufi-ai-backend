@@ -299,21 +299,6 @@ class SupabaseService:
             print(f"❌ Error updating daily nutrition: {e}")
             raise Exception(f"Failed to update daily nutrition: {str(e)}")
 
-    async def get_daily_nutrition_range(self, user_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Get daily nutrition summaries for a date range"""
-        try:
-            response = self.client.table('daily_nutrition')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', start_date)\
-                .lte('date', end_date)\
-                .order('date', desc=True)\
-                .execute()
-            
-            return response.data or []
-        except Exception as e:
-            print(f"❌ Error getting daily nutrition range: {e}")
-            return []
         
     async def get_meals_by_date(self, user_id: str, date: date, shared_only: bool = False) -> List[Dict[str, Any]]:
         """Get all meals for a specific date.
@@ -451,27 +436,6 @@ class SupabaseService:
             return []
     
     # Chat/Conversation Operations (placeholder for later)
-    async def create_conversation(self, conversation_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a conversation entry (placeholder for later)"""
-        try:
-            print(f"🔍 Creating conversation for user: {conversation_data.get('user_id')}")
-            
-            if 'id' not in conversation_data:
-                conversation_data['id'] = str(uuid.uuid4())
-            
-            response = self.client.table('conversations').insert(conversation_data).execute()
-            
-            if response.data:
-                print(f"✅ Conversation created: {response.data[0]['id']}")
-                return response.data[0]
-            else:
-                raise Exception("No data returned from Supabase")
-                
-        except Exception as e:
-            print(f"❌ Error creating conversation: {e}")
-            raise Exception(f"Failed to create conversation: {str(e)}")
-    
-    # Health check method
     async def health_check(self) -> Dict[str, Any]:
         """Check if Supabase connection is working"""
         try:
@@ -671,23 +635,6 @@ class SupabaseService:
             print(f"❌ Error getting water history: {e}")
             return []
 
-    async def get_water_entries_in_range(self, user_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Get water entries within a date range"""
-        try:
-            response = self.client.table('daily_water')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', start_date)\
-                .lte('date', end_date)\
-                .order('date', desc=True)\
-                .execute()
-            
-            return response.data or []
-        except Exception as e:
-            print(f"❌ Error getting water entries in range: {e}")
-            return []
-        
-    # Step functions
     async def create_step_entry(self, step_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new step entry"""
         try:
@@ -768,42 +715,6 @@ class SupabaseService:
             print(f"❌ Error getting step history: {e}")
             return []
 
-    async def get_step_entries_in_range(self, user_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Get step entries within a date range"""
-        try:
-            response = self.client.table('daily_steps')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .gte('date', start_date)\
-                .lte('date', end_date)\
-                .order('date', desc=True)\
-                .execute()
-            
-            if response.data:
-                # Format for Flutter
-                formatted_entries = []
-                for entry in response.data:
-                    formatted_entry = {
-                        'id': entry['id'],
-                        'userId': entry['user_id'],
-                        'date': entry['date'],
-                        'steps': entry.get('steps', 0),
-                        'goal': entry.get('goal', 10000),
-                        'caloriesBurned': float(entry.get('calories_burned', 0.0)),
-                        'distanceKm': float(entry.get('distance_km', 0.0)),
-                        'activeMinutes': entry.get('active_minutes', 0),
-                        'sourceType': entry.get('source_type', 'manual'),
-                        'lastSynced': entry.get('last_synced'),
-                        'createdAt': entry.get('created_at'),
-                        'updatedAt': entry.get('updated_at')
-                    }
-                    formatted_entries.append(formatted_entry)
-                return formatted_entries
-            
-            return []
-        except Exception as e:
-            print(f"❌ Error getting step entries in range: {e}")
-            return []
 
     async def delete_step_entry_by_date(self, user_id: str, entry_date: date) -> bool:
         """Delete step entry for a specific date"""
@@ -923,37 +834,6 @@ class SupabaseService:
             print(f"❌ Error getting weight history: {e}")
             return []
 
-    async def get_weight_entries(
-        self,
-        user_id: str,
-        start_date: str = None,
-        end_date: str = None,
-        limit: int = 50,
-        shared_only: bool = False
-    ) -> List[Dict[str, Any]]:
-        """Get weight entries for a user, optionally filtered by a date range.
-
-        Pass shared_only=True for AI/chat context reads to exclude entries the
-        user has hidden (shared_with_chat=False).
-        """
-        try:
-            query = self.client.table('weight_entries')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .order('date', desc=False)
-
-            if start_date:
-                query = query.gte('date', start_date)
-            if end_date:
-                query = query.lte('date', end_date)
-            if shared_only:
-                query = query.eq('shared_with_chat', True)
-
-            response = query.limit(limit).execute()
-            return response.data or []
-        except Exception as e:
-            print(f"❌ Error getting weight entries: {e}")
-            return []
 
     async def get_latest_weight(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get the latest weight entry for a user"""
@@ -1073,46 +953,6 @@ class SupabaseService:
             print(f"❌ Error updating user weight: {e}")
             return False
 
-    async def initialize_starting_weight(self, user_id: str) -> bool:
-        """Initialize starting weight if not set (for new or existing users)"""
-        try:
-            user = await self.get_user_by_id(user_id)
-            
-            # Only initialize if starting_weight is not set
-            if user and not user.get('starting_weight'):
-                # Try to get the oldest weight entry
-                oldest_entry_response = self.client.table('weight_entries')\
-                    .select('weight, date')\
-                    .eq('user_id', user_id)\
-                    .order('date', desc=False)\
-                    .limit(1)\
-                    .execute()
-                
-                if oldest_entry_response.data:
-                    # Use oldest entry
-                    starting_weight = oldest_entry_response.data[0]['weight']
-                    starting_date = oldest_entry_response.data[0]['date']
-                else:
-                    # Use current weight as starting weight
-                    starting_weight = user.get('weight')
-                    starting_date = user.get('created_at')
-                
-                if starting_weight:
-                    self.client.table('users')\
-                        .update({
-                            'starting_weight': starting_weight,
-                            'starting_weight_date': starting_date
-                        })\
-                        .eq('id', user_id)\
-                        .execute()
-                    
-                    print(f"✅ Initialized starting weight to {starting_weight} kg for user {user_id}")
-                    return True
-            
-            return False
-        except Exception as e:
-            print(f"❌ Error initializing starting weight: {e}")
-            return False
         
     async def initialize_starting_weight_for_user(self, user_id: str) -> bool:
         """Initialize starting weight for a user who doesn't have it set"""
@@ -1157,42 +997,6 @@ class SupabaseService:
             print(f"❌ Error initializing starting weight: {e}")
             return False
 
-    async def migrate_all_users_starting_weights(self) -> dict:
-        """Migrate starting weights for all users who don't have it set"""
-        try:
-            # Get all users without starting_weight
-            response = self.client.table('users')\
-                .select('id, weight, created_at')\
-                .is_('starting_weight', 'null')\
-                .execute()
-            
-            users_to_migrate = response.data
-            migrated_count = 0
-            failed_count = 0
-            
-            print(f"📊 Found {len(users_to_migrate)} users to migrate")
-            
-            for user in users_to_migrate:
-                try:
-                    success = await self.initialize_starting_weight_for_user(user['id'])
-                    if success:
-                        migrated_count += 1
-                    else:
-                        failed_count += 1
-                except Exception as e:
-                    print(f"❌ Failed to migrate user {user['id']}: {e}")
-                    failed_count += 1
-            
-            return {
-                'total': len(users_to_migrate),
-                'migrated': migrated_count,
-                'failed': failed_count
-            }
-        except Exception as e:
-            print(f"❌ Error in migration: {e}")
-            return {'error': str(e)}
-        
-    # sleep functions
     async def create_sleep_entry(self, sleep_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new sleep entry"""
         try:
