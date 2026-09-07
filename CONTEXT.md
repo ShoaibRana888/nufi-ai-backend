@@ -34,19 +34,34 @@ designed interface, not an accident.
   it as a `shared_only: bool` parameter on the by-date reads
   (`get_meals_by_date(..., shared_only=True)`, `get_water_by_date`, `get_steps_by_date`, …).
   Entries not shared are excluded from chat context.
-- **Shared activities for a date** — the set of a user's shared entries across all
-  trackers on one date. Owned by `supabase_service.get_shared_activities_for_date`,
-  which returns the eight tracker sections plus `_read_errors` (a per-section failure
-  map, empty on success). Sections are independent: one broken tracker read never fails
-  the others. See [ADR-0002](docs/adr/0002-shared-activities-for-a-date.md).
-  - **Shared-only by construction.** This is the *coach's* view. The **owner's complete
-    day** — every entry regardless of `shared_with_chat` — is a different read, requested
-    by the client in `docs/contracts/daily-snapshot-endpoint.md`. Same plumbing, two
-    interfaces; do not conflate them.
-  - Before this, the three context builders re-derived it with 17 leaked reads, filtering
-    meal dates three different ways and using `.eq()` on columns the store reads with a
-    half-open range. Composing the store's own per-tracker methods means every caller
-    inherits the range form, which is correct whether a column holds a date or a timestamp.
+- **A day read** — one user's entries across all trackers on one date. There are
+  **two**, both public methods on `supabase_service`, sharing one private composition
+  (`_activities_for_date`). Each returns the eight tracker sections plus `_read_errors`
+  (a per-section failure map, empty on success); sections are independent, so one broken
+  tracker read never fails the others. See
+  [ADR-0002](docs/adr/0002-shared-activities-for-a-date.md) and
+  [ADR-0004](docs/adr/0004-daily-snapshot-endpoint.md).
+  - **Shared activities for a date** — `get_shared_activities_for_date`. The *coach's*
+    view: only entries with `shared_with_chat`. Backs the chat context builders.
+  - **Owner activities for a date** — `get_owner_activities_for_date`. The *owner's*
+    complete day, every entry regardless of the flag, because the owner sees and edits
+    all of their own data. Backs `GET /api/health/daily-snapshot/{user_id}/{date}`.
+  - **Neither takes a `shared_only` flag** — the flag is on the private composition and
+    the names carry the meaning. A boolean on a public day read is how the two views get
+    conflated, and it costs in both directions: the coach seeing entries the user hid, or
+    the user's dashboard hiding their own data from them. Pinned by
+    `tests/test_store_by_date_surface.py`. Same plumbing, two interfaces; do not conflate.
+  - **`_read_errors` only became real in ADR-0004.** The map shipped with candidate #1,
+    but seven of the eight component reads swallowed their exceptions into the same value
+    they return for an empty day, so in production it was only ever populated for
+    `period`. The composition was right; the leaves were lying to it. **The by-date reads
+    now propagate**, and a failed read is distinguishable from a quiet day — which the
+    daily-snapshot contract requires and ADR-0001 had flagged.
+  - Before candidate #1, the three context builders re-derived the shared view with 17
+    leaked reads, filtering meal dates three different ways and using `.eq()` on columns
+    the store reads with a half-open range. Composing the store's own per-tracker methods
+    means every caller inherits the range form, which is correct whether a column holds a
+    date or a timestamp.
 - **Coach** — the AI chat assistant (`chat_service` + `openai_service`). Answers using
   chat context.
 - **Chat context** — the digest of a user's recent tracker data fed to the coach.
@@ -84,8 +99,23 @@ designed interface, not an accident.
 - **Guardrails** — body-state safety checks over a user's recent data
   (period / sleep / calorie / already-logged), in `services/guardrails.py`, applied before
   the coach responds.
-- **Daily summary** — a composed read for one day (`api/daily_summary.py`), the backend
-  counterpart to the client's "today report".
+- **Daily summary** — `GET /api/health/daily-summary/{user_id}` (`api/daily_summary.py`).
+  Despite the name it is **meals only**: nutrition totals plus a count. Not the day.
+  A second handler for the same path lived in `api/activity_check.py` and was unreachable
+  — Starlette matches in registration order and the first wins, silently — so it rotted
+  unnoticed. Deleted in ADR-0004; `tests/test_no_shadowed_routes.py` now fails on any
+  duplicated path+method.
+- **Daily snapshot** — `GET /api/health/daily-snapshot/{user_id}/{date}`
+  (`api/daily_snapshot.py`), the composed read for a user's whole day and the backend
+  counterpart to the client's `DailySnapshot.forDay`. Shape frozen in
+  `docs/contracts/daily-snapshot-endpoint.md` (authoritative copy: `nufi_app`
+  docs/adr/0003). Composes `get_owner_activities_for_date`; the shaping is pure.
+  - **Three states per section**, matching the client's `Section.ok` / `.missing` /
+    `.error`: present ⇒ ok, absent ⇒ missing, absent and named in `_read_errors` ⇒ error.
+  - **Roll-ups are always present, single rows are omitted when empty.** `meals`,
+    `exercise` and `supplements` carry zeros for a day with nothing logged — that is an
+    answer, not an absence. `water`, `steps`, `sleep` and `weight` are omitted when there
+    is no row. Mirrors the client's own fan-out.
 
 ## Data access vocabulary (the architecture work touches this)
 
@@ -102,6 +132,20 @@ designed interface, not an accident.
   them will not respect `shared_with_chat`, and its name will not say so. That is how the
   water/steps/sleep pairs arose — and in all three the unsafe variant was the *more* used
   one. `tests/test_store_by_date_surface.py` now pins the surface.
+- **A read reports failure; it does not return it as data.** The by-date reads used to
+  wrap every query in `try/except` and return the value that means "nothing logged" — a
+  broken tracker and a quiet day were the same answer. That silently defeated the layer
+  built on top of it (`_read_errors`), wrote duplicate rows on the upsert paths that
+  check for an existing entry first, and told the coach the user had logged nothing when
+  the database was unreachable. Fixed in
+  [ADR-0004](docs/adr/0004-daily-snapshot-endpoint.md); pinned by
+  `tests/test_by_date_reads_propagate_errors.py`. **The corollary for tests:** stubbing
+  the method under a composition proves the composition, not the system — those tests
+  passed for a year against leaves that could not raise.
+- **Two handlers can claim one route, and the loser is silent.** Starlette matches in
+  registration order; the first wins with no warning. Twenty-odd routers share a handful
+  of prefixes here, and it has already happened once (`/daily-summary`).
+  `tests/test_no_shadowed_routes.py` fails on any duplicated path+method.
 - **Leaked read** — a raw `.client.table(...)` call made *outside* the store. The
   context builders have none left: candidate #1 pulled all 17 behind
   `get_shared_activities_for_date`. What remains is two distinct groups, and neither is
@@ -125,6 +169,10 @@ designed interface, not an accident.
     read path rebuilds anyway, what are the ~28 refresh calls scattered across the write
     endpoints buying?" The stale-cache exposure that remains is
     `GET /chat/context/{user_id}`, which serves cached context without rebuilding.
+  - **Not a prerequisite for anything.** The daily-snapshot contract said to pair this
+    endpoint with #4 for the write side and to build it on #2's daily-metric store.
+    Neither was needed: #2 was inventoried and deliberately not built (ADR-0003), and the
+    snapshot needed only by-date reads the store already had (ADR-0004).
 
 ## Conventions
 
@@ -142,7 +190,13 @@ designed interface, not an accident.
   "duplicated helper worth extracting" turned out to have no callers at all. Grep both
   repos for the key or the function name, check the prompt builders, and check the Dart
   side — then remove it rather than carrying it into a new module, which only launders
-  dead code into looking live.
+  dead code into looking live. "Registered" is not "reachable": prove it against the
+  route table, not the source.
+- **Inventory the premise before building the candidate.** Four for four now, the
+  written premise has been wrong in a way that changed the work: #1 was mis-sized by 4x,
+  #3 was half dead code, #2's uniform CRUD family did not exist, and #4's justification
+  is void. For the snapshot the premise held but the *precedent* did not — `_read_errors`
+  was structurally dead. Check what is live before extending it.
 - Architecture vocabulary (module, interface, seam, adapter, depth, leverage, locality)
   lives in the design skill, not here. This file names the *domain*; that file names the
   *shapes*.

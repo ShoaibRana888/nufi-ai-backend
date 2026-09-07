@@ -48,8 +48,17 @@ EXPECTED_BY_DATE_SURFACE = set(SHARED_AWARE) | {
     #     the same method wearing a different name.
     'get_supplement_log_by_date',
     'get_user_meals_by_date',
-    # The composed door itself.
+    # The two composed doors. Same plumbing (_activities_for_date), two
+    # interfaces: the coach's shared subset and the owner's full day. Distinct
+    # names rather than one read with a flag -- see ADR-0002 and ADR-0004.
     'get_shared_activities_for_date',
+    'get_owner_activities_for_date',
+}
+
+# The two public day reads, and the shared_only value each one stands for.
+COMPOSED_READS = {
+    'get_shared_activities_for_date': 'True',
+    'get_owner_activities_for_date': 'False',
 }
 
 
@@ -92,8 +101,36 @@ def test_the_by_date_surface_is_exactly_what_we_expect():
 
 
 def test_the_composed_read_covers_every_tracker():
-    """get_shared_activities_for_date is the one door for a shared day."""
-    source = inspect.getsource(SupabaseService.get_shared_activities_for_date)
+    """The one composition behind both day reads touches every tracker."""
+    source = inspect.getsource(SupabaseService._activities_for_date)
 
     for name in SHARED_AWARE:
-        assert name in source, f"{name} is not composed into the shared-day read"
+        assert name in source, f"{name} is not composed into the day read"
+
+
+@pytest.mark.parametrize('name', sorted(COMPOSED_READS))
+def test_neither_public_day_read_takes_a_flag(name):
+    """The conflation guard.
+
+    A `shared_only` parameter on either of these is how the coach's view and
+    the owner's view become one read that callers pick the wrong half of. The
+    flag lives on the private composition; the public names carry the meaning.
+    """
+    params = inspect.signature(getattr(SupabaseService, name)).parameters
+
+    assert set(params) == {'self', 'user_id', 'target_date'}, (
+        f"{name} takes {sorted(set(params) - {'self'})}. Whether a day read is "
+        f"shared-only must be fixed by the method's name, not by an argument."
+    )
+
+
+@pytest.mark.parametrize('name,shared_only', sorted(COMPOSED_READS.items()))
+def test_each_public_day_read_delegates_with_the_right_flag(name, shared_only):
+    source = inspect.getsource(getattr(SupabaseService, name))
+
+    assert '_activities_for_date' in source, (
+        f"{name} should compose _activities_for_date, not re-derive the day."
+    )
+    assert f'shared_only={shared_only}' in source, (
+        f"{name} must pass shared_only={shared_only}."
+    )
