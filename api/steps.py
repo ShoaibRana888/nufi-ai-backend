@@ -27,7 +27,7 @@ async def save_step_entry(step_data: StepEntryCreate, tz_offset: int = Depends(g
             entry_date = get_user_today(tz_offset)
 
         # Check if entry exists for this date
-        existing_entry = await supabase_service.get_step_entry_by_date(
+        existing_entry = await supabase_service.get_steps_by_date(
             step_data.userId,
             entry_date
         )
@@ -91,7 +91,7 @@ async def get_steps_by_date(
         else:
             entry_date = get_user_today(tz_offset)
 
-        entry = await supabase_service.get_step_entry_by_date(user_id, entry_date)
+        entry = await supabase_service.get_steps_by_date(user_id, entry_date)
 
         if entry:
             return {
@@ -122,7 +122,7 @@ async def get_today_steps(user_id: str, tz_offset: int = Depends(get_timezone_of
         user_step_goal = user.get('daily_step_goal', 10000) if user else 10000
 
         # Get today's entry
-        entry = await supabase_service.get_step_entry_by_date(user_id, today)
+        entry = await supabase_service.get_steps_by_date(user_id, today)
 
         if not entry:
             # Create virtual entry with user's goal

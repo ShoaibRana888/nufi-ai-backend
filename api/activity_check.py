@@ -189,8 +189,8 @@ async def get_daily_activity_summary(
             start_date=str(check_date),
             end_date=str(check_date)
         )
-        water_entry = await supabase_service.get_water_entry_by_date(user_id, check_date)
-        sleep_entry = await supabase_service.get_sleep_entry_by_date(user_id, check_date)
+        water_entry = await supabase_service.get_water_by_date(user_id, check_date)
+        sleep_entry = await supabase_service.get_sleep_by_date(user_id, check_date)
         supplement_status = await supabase_service.get_supplement_status_by_date(user_id, check_date)
         
         # Get weight entries from last 7 days

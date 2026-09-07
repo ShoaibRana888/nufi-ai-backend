@@ -60,7 +60,7 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depe
             wake_time = _parse_local_timestamp_to_utc(sleep_data.wake_time, tz_offset)
 
         # Check if entry exists for this date
-        existing_entry = await supabase_service.get_sleep_entry_by_date(
+        existing_entry = await supabase_service.get_sleep_by_date(
             sleep_data.user_id,
             entry_date
         )
@@ -144,7 +144,7 @@ async def get_sleep_history(user_id: str, limit: int = 30):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/sleep/entries/{user_id}/{date}")
-async def get_sleep_entry_by_date(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
+async def get_sleep_by_date(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
     """Get sleep entry for a specific date"""
     try:
         print(f"Getting sleep entry for user: {user_id}, date: {date}")
@@ -157,7 +157,7 @@ async def get_sleep_entry_by_date(user_id: str, date: str, tz_offset: int = Depe
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        entry = await supabase_service.get_sleep_entry_by_date(user_id, entry_date)
+        entry = await supabase_service.get_sleep_by_date(user_id, entry_date)
 
         if entry:
             # Format the response consistently

@@ -27,7 +27,7 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
             entry_date = get_user_today(tz_offset)
 
         # Check if entry exists for this date
-        existing_entry = await supabase_service.get_water_entry_by_date(
+        existing_entry = await supabase_service.get_water_by_date(
             water_data.user_id,
             entry_date
         )
@@ -78,7 +78,7 @@ async def get_today_water(user_id: str, tz_offset: int = Depends(get_timezone_of
 
         supabase_service = get_supabase_service()
         today = get_user_today(tz_offset)
-        entry = await supabase_service.get_water_entry_by_date(user_id, today)
+        entry = await supabase_service.get_water_by_date(user_id, today)
 
         return {"success": True, "entry": entry}
 
@@ -122,7 +122,7 @@ async def get_water_by_date(
             entry_date = get_user_today(tz_offset)
 
         # Get entry for date
-        entry = await supabase_service.get_water_entry_by_date(user_id, entry_date)
+        entry = await supabase_service.get_water_by_date(user_id, entry_date)
 
         if entry:
             return {
@@ -151,7 +151,7 @@ async def delete_water_entry(user_id: str, date: str, tz_offset: int = Depends(g
         entry_date = get_user_date(date, tz_offset)
 
         # Get existing entry
-        existing = await supabase_service.get_water_entry_by_date(user_id, entry_date)
+        existing = await supabase_service.get_water_by_date(user_id, entry_date)
         if not existing:
             return {"success": False, "message": "Water entry not found"}
 
