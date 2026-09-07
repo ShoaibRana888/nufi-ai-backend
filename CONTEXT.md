@@ -89,6 +89,27 @@ designed interface, not an accident.
   backend's `health_insights`"; that is a **cousin**, not a twin — different window
   (one day vs. many), different question (goal-relative vs. directional), different output
   (structured `MetricStatus` vs. encoded strings). Corrected there in a superseding note.
+- **Recent activity summary** — *removed.* `chat_service._get_recent_activity_summary`
+  looped seven days of `get_today_activities` — **56 sequential queries** after candidate
+  #1 widened that read to eight sections (it was 42 before) — to produce
+  `meals_this_week` / `workouts_this_week` / `avg_sleep_hours`. Deleted rather than
+  optimised, because tracing every consumer found none:
+  - **No prompt read it.** `_create_system_prompt` reads `user_profile`,
+    `today_progress` and `body_state`; `_create_enhanced_system_prompt` adds
+    `current_week`.
+  - **The client could not have read it.** `ChatService.getUserContext` calls
+    `GET /api/health/chat/context/{user_id}`, which is served by
+    `chat_context_manager` — a module that has never produced a `recent_activity` key.
+    The only producer was `chat_service.get_user_context`, and the only path to *that*
+    is the `except` branch of `get_enhanced_context`. Producer and endpoint were in
+    different modules.
+  - So the client's three `context['recent_activity'] ?? {}` reads in
+    `lib/data/services/chat_service.dart` always took the fallback, and
+    `generateContextSummary`'s **"Recent highlights" line has never once rendered** —
+    it returns the generic greeting every time. Fixing that is a client-side decision
+    about whether anyone wants the feature, not a reason to keep an unread producer.
+  - The 56 queries were also worst-placed: on a fallback path, they fired only when the
+    context manager had already failed.
 - **Weekly summary** — *removed.* It was built by both `chat_context_manager` and
   `chat_service` under the same key names with divergent semantics (windows off by a day at
   each end, calories averaged over days-with-data vs. a flat 7, workouts counted as days vs.
@@ -155,20 +176,30 @@ designed interface, not an accident.
     they get a home it is a context-store module, not the tracker store.
   - **Endpoint reads** — `api/` modules reaching tables directly (notifications, FCM,
     debug, meal suggestions, meal presets). Separate concerns, separate decisions.
-- **`log_daily_metric` use-case** *(emerging term)* — candidate #4. Endpoints repeat
-  "upsert-by-date, then remember to refresh chat context", and this use-case would own
-  that flow as one atomic move. **Its stated justification does not hold as written** and
-  it should be re-grilled before anyone builds it:
-  - The claim is that forgetting the refresh is a real bug class. `api/periods.py` does
-    have 4 write endpoints and no refresh call at all — and period data reaches the coach's
-    safety guardrail via `compute_period_status`.
-  - But `chat_service.generate_chat_response` calls `rebuild_context` **unconditionally
-    before every reply**, so the coach never reads a stale context. The bug is already
-    defended, bluntly, by rebuilding every turn.
-  - Which inverts the question. Not "how do we make every write refresh?" but "given the
-    read path rebuilds anyway, what are the ~28 refresh calls scattered across the write
-    endpoints buying?" The stale-cache exposure that remains is
-    `GET /chat/context/{user_id}`, which serves cached context without rebuilding.
+- **`log_daily_metric` use-case** — candidate #4, **re-grilled 2026-09-07 and not
+  built as scoped.** The proposal was that endpoints repeat "upsert-by-date, then
+  remember to refresh chat context" and that a use-case should own the flow atomically,
+  because forgetting the refresh is a real bug class. Checked against the code:
+  - **The refresh calls number 14, not ~28**, and they are one method:
+    `context_manager.update_context_activity`, across meals (4), water, steps, sleep,
+    exercise, weight (2 each) and supplements (1). The earlier figure counted the
+    context manager's whole surface.
+  - **The bug class is already defended.** `chat_service.generate_chat_response` calls
+    `rebuild_context` unconditionally before every reply, so the coach never reads a
+    stale context regardless of what the write endpoints did.
+  - **`api/periods.py` has 4 write endpoints and zero refresh calls, and is fine** —
+    period data reaches the coach's guardrail through `compute_period_status`, which
+    takes a `period_row` read from the table, not from cached context. The one endpoint
+    family that "forgets" is the one that never needed to remember.
+  - **So the 14 calls buy exactly one thing:** freshness for
+    `GET /api/health/chat/context/{user_id}`, which serves stored `context_data`
+    verbatim — `get_or_create_context` does no freshness check and the `version` column
+    is written but never read for any decision.
+  - **The re-scoped question**, which is much smaller than a use-case: *should the
+    cached-context endpoint rebuild, or declare its staleness?* Answer that first. If it
+    rebuilds, the 14 calls are dead and the question becomes a deletion. If it does not,
+    they are load-bearing for one endpoint and `log_daily_metric` is still the wrong
+    shape for saying so.
   - **Not a prerequisite for anything.** The daily-snapshot contract said to pair this
     endpoint with #4 for the write side and to build it on #2's daily-metric store.
     Neither was needed: #2 was inventoried and deliberately not built (ADR-0003), and the

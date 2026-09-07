@@ -161,49 +161,6 @@ class HealthChatService:
             user_id, target_date
         )
     
-    async def _get_recent_activity_summary(self, user_id: str) -> Dict[str, Any]:
-        """Get recent activity summary for the past week"""
-        try:
-            end_date = datetime.now().date()
-            start_date = end_date - timedelta(days=7)
-            
-            meals_count = 0
-            workouts_count = 0
-            total_sleep_hours = 0
-            sleep_count = 0
-            
-            for i in range(7):
-                date = start_date + timedelta(days=i)
-                activities = await self.get_today_activities(user_id, date)
-                
-                # Count meals
-                meals_count += len(activities.get('meals', []))
-                
-                # Count workouts
-                workouts_count += len(activities.get('exercise', []))
-                
-                # Sum sleep hours
-                sleep = activities.get('sleep', {})
-                if sleep.get('total_hours'):
-                    total_sleep_hours += sleep['total_hours']
-                    sleep_count += 1
-            
-            avg_sleep = round(total_sleep_hours / sleep_count, 1) if sleep_count > 0 else 0
-            
-            return {
-                'meals_this_week': meals_count,
-                'workouts_this_week': workouts_count,
-                'avg_sleep_hours': avg_sleep,
-            }
-            
-        except Exception as e:
-            print(f"Error getting recent activity: {e}")
-            return {
-                'meals_this_week': 0,
-                'workouts_this_week': 0,
-                'avg_sleep_hours': 0,
-            }
-    
     async def get_user_context(self, user_id: str) -> Dict[str, Any]:
         """Get comprehensive user context for chat"""
         try:
@@ -240,9 +197,6 @@ class HealthChatService:
             steps = activities.get('steps', {})
             weight = activities.get('weight', {})
             sleep = yesterday_activities.get('sleep', {})  # Use yesterday's sleep
-            
-            # Get recent activity
-            recent_activity = await self._get_recent_activity_summary(user_id)
             
             context = {
                 'user_profile': {
@@ -286,7 +240,6 @@ class HealthChatService:
                         'status': weight_status(user.get('weight'), user.get('target_weight'))
                     }
                 },
-                'recent_activity': recent_activity,
             }
             
             return context
@@ -342,11 +295,6 @@ class HealthChatService:
                     'status': 'no_data'
                 }
             },
-            'recent_activity': {
-                'meals_this_week': 0,
-                'workouts_this_week': 0,
-                'avg_sleep_hours': 0,
-            }
         }
     
     def _create_system_prompt(self, context: Dict[str, Any]) -> str:
