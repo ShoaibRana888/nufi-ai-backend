@@ -1614,33 +1614,28 @@ class SupabaseService:
             print(f"❌ Error getting active period for {target_date}: {e}")
             raise
 
-    async def get_shared_activities_for_date(
-        self, user_id: str, target_date: date
+    async def _activities_for_date(
+        self, user_id: str, target_date: date, shared_only: bool
     ) -> Dict[str, Any]:
-        """Every entry the user has shared with chat, for one date.
+        """One day of a user's entries across every tracker.
 
-        The single home for **shared activities for a date** (see CONTEXT.md).
-        The context builders previously re-derived this with 17 raw
-        `.client.table(...)` reads across three files -- in three different
-        spellings of the meal-date filter alone, and with `.eq()` on columns
-        this class reads with a half-open range. Composing the per-tracker
-        store methods here means every caller gets the range form, which is
-        correct whether the underlying column holds a date or a timestamp.
+        The shared plumbing behind the two public reads. It is private and it
+        takes the flag; the public reads are named for the question they answer
+        and take none, because a boolean on a public read is exactly how the
+        coach's view and the owner's view get conflated (ADR-0002, ADR-0004).
 
-        Shared-only by construction: this is the **coach's** view. The owner's
-        complete day -- every entry regardless of `shared_with_chat` -- is a
-        different read; see `docs/contracts/daily-snapshot-endpoint.md`. The
-        two share plumbing and must not be conflated.
+        Composes the per-tracker store methods rather than issuing its own
+        queries, so every caller inherits their half-open date range -- correct
+        whether the underlying column holds a `date`, a `timestamp` or a
+        `timestamptz`, which in this schema is all three (see CONTEXT.md).
 
         Returns the eight tracker sections under their established keys, plus
         `_read_errors`: a mapping of section name to error message, empty when
         every read succeeded. A failed section still carries its empty value,
-        so callers that ignore `_read_errors` behave exactly as the old inline
-        reads did. Callers that must tell "this tracker is broken" from "the
-        user logged nothing" -- which the daily-snapshot contract requires --
-        can now do so.
-
-        Sections are independent: one failing read never fails the others.
+        so callers that ignore `_read_errors` degrade the way the old inline
+        reads did; callers that must tell "this tracker is broken" from "the
+        user logged nothing" can. Sections are independent: one failing read
+        never fails the others.
 
         Reads run sequentially. `supabase-py`'s `execute()` is blocking, so
         gathering these would not overlap them; making that concurrent is a
@@ -1651,14 +1646,14 @@ class SupabaseService:
 
         # (section key, value meaning "nothing logged", how to read it)
         sections = (
-            ('meals', [], lambda: self.get_meals_by_date(user_id, target_date, shared_only=True)),
-            ('water', {}, lambda: self.get_water_by_date(user_id, target_date, shared_only=True)),
-            ('steps', {}, lambda: self.get_steps_by_date(user_id, target_date, shared_only=True)),
-            ('sleep', {}, lambda: self.get_sleep_by_date(user_id, target_date, shared_only=True)),
-            ('exercise', [], lambda: self.get_exercises_by_date(user_id, target_date, shared_only=True)),
-            ('weight', {}, lambda: self.get_weight_by_date(user_id, target_date, shared_only=True)),
-            ('supplements', {}, lambda: self.get_supplement_status_by_date(user_id, target_date, shared_only=True)),
-            ('period', {}, lambda: self.get_active_period_for_date(user_id, target_date, shared_only=True)),
+            ('meals', [], lambda: self.get_meals_by_date(user_id, target_date, shared_only=shared_only)),
+            ('water', {}, lambda: self.get_water_by_date(user_id, target_date, shared_only=shared_only)),
+            ('steps', {}, lambda: self.get_steps_by_date(user_id, target_date, shared_only=shared_only)),
+            ('sleep', {}, lambda: self.get_sleep_by_date(user_id, target_date, shared_only=shared_only)),
+            ('exercise', [], lambda: self.get_exercises_by_date(user_id, target_date, shared_only=shared_only)),
+            ('weight', {}, lambda: self.get_weight_by_date(user_id, target_date, shared_only=shared_only)),
+            ('supplements', {}, lambda: self.get_supplement_status_by_date(user_id, target_date, shared_only=shared_only)),
+            ('period', {}, lambda: self.get_active_period_for_date(user_id, target_date, shared_only=shared_only)),
         )
 
         for key, empty, read in sections:
@@ -1668,12 +1663,46 @@ class SupabaseService:
                 # context builders have always expected {} there.
                 activities[key] = empty if result is None else result
             except Exception as e:
-                print(f"⚠️ Error reading {key} for {target_date}: {e}")
+                print(f"\u26a0\ufe0f Error reading {key} for {target_date}: {e}")
                 activities[key] = empty
                 errors[key] = str(e)
 
         activities['_read_errors'] = errors
         return activities
+
+    async def get_shared_activities_for_date(
+        self, user_id: str, target_date: date
+    ) -> Dict[str, Any]:
+        """Every entry the user has **shared with chat**, for one date.
+
+        The single home for **shared activities for a date** (see CONTEXT.md).
+        This is the **coach's** view, shared-only by construction -- there is
+        no flag to turn that off. The context builders previously re-derived it
+        with 17 raw `.client.table(...)` reads across three files, in three
+        different spellings of the meal-date filter alone.
+
+        For the owner's complete day, call `get_owner_activities_for_date`.
+        The two share plumbing (`_activities_for_date`) and must not be
+        conflated. See ADR-0002.
+        """
+        return await self._activities_for_date(user_id, target_date, shared_only=True)
+
+    async def get_owner_activities_for_date(
+        self, user_id: str, target_date: date
+    ) -> Dict[str, Any]:
+        """**Every** entry the user logged on one date, shared or not.
+
+        The single home for **owner activities for a date** (see CONTEXT.md).
+        This is the **owner's** view: they see and edit all of their own data,
+        so `shared_with_chat` does not filter it. Backs
+        `GET /api/health/daily-snapshot/{user_id}/{date}`.
+
+        Not a superset to reach for by default. Anything on a chat or coaching
+        path wants `get_shared_activities_for_date`; using this one there would
+        feed the coach entries the user deliberately hid from it. See ADR-0004.
+        """
+        return await self._activities_for_date(user_id, target_date, shared_only=False)
+
 
 # Global instance - we'll initialize this in main.py
 supabase_service = None

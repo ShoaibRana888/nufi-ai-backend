@@ -1,10 +1,16 @@
-"""Composition and failure isolation in get_shared_activities_for_date.
+"""Composition and failure isolation in the two day reads.
 
-The per-tracker reads it composes are already covered by their own callers;
-what is new here is the composition -- which sections it produces, how it
-normalises "nothing logged", and that one broken tracker does not take the
-others down. The service is built with `object.__new__` so `__init__` never
-reaches Supabase, and every component read is stubbed.
+`_activities_for_date` is the shared plumbing; `get_shared_activities_for_date`
+(the coach's shared subset) and `get_owner_activities_for_date` (the owner's
+full day) are its two public faces. The per-tracker reads they compose are
+covered by their own callers and by
+`tests/test_by_date_reads_propagate_errors.py`; what is covered here is the
+composition -- which sections it produces, how it normalises "nothing logged",
+which `shared_only` each door passes down, and that one broken tracker does not
+take the others down.
+
+The service is built with `object.__new__` so `__init__` never reaches
+Supabase, and every component read is stubbed.
 """
 import asyncio
 from datetime import date
@@ -146,3 +152,40 @@ def test_all_sections_failing_still_returns_the_full_shape():
 
     assert set(result['_read_errors']) == set(SECTIONS)
     assert set(result) == set(SECTIONS) | {'_read_errors'}
+
+
+# --- The owner's day: same plumbing, the other interface. -------------------
+
+
+def test_the_owner_read_asks_for_everything_not_just_the_shared_subset():
+    """The distinction the daily-snapshot contract turns on.
+
+    The owner sees and edits all of their own data, so `shared_with_chat` must
+    not filter this read. Getting this backwards would silently hide the user's
+    own entries from their own dashboard.
+    """
+    store = build_store()
+    run(store.get_owner_activities_for_date('u1', DAY))
+
+    assert len(store.calls) == len(SECTIONS)
+    for section, args, kwargs in store.calls:
+        assert kwargs.get('shared_only') is False, section
+        assert args == ('u1', DAY), section
+
+
+def test_both_doors_produce_the_same_shape():
+    shared = run(build_store().get_shared_activities_for_date('u1', DAY))
+    owner = run(build_store().get_owner_activities_for_date('u1', DAY))
+
+    assert set(shared) == set(owner) == set(SECTIONS) | {'_read_errors'}
+
+
+def test_the_owner_read_isolates_a_broken_tracker_too():
+    store = build_store(sleep=RuntimeError('sleep_entries exploded'),
+                        meals=[{'calories': 500}])
+    result = run(store.get_owner_activities_for_date('u1', DAY))
+
+    assert result['meals'] == [{'calories': 500}]
+    assert result['sleep'] == {}
+    assert 'sleep_entries exploded' in result['_read_errors']['sleep']
+    assert 'meals' not in result['_read_errors']
