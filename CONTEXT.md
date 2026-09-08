@@ -221,6 +221,20 @@ designed interface, not an accident.
     skipping the refresh below the `if/else`, so only the day's *first* glass
     refreshed the context. Fixed; `tests/test_water_context_refresh.py` covers
     both branches. A call site is not a call.
+  - **The incremental refresh does not respect `shared_with_chat`.**
+    `update_context_activity` merges its payload into `chat_contexts` blind, so
+    logging against a row the user hid reverses the rebuild that
+    `PATCH /sharing/{user_id}` performs. `api/water.py` now skips the shortcut for a
+    hidden row; **meals, steps, sleep, exercise, weight and supplements still do
+    not** — same hole, six more call sites, its own fix. The full rebuild on the
+    read path filters correctly; only this shortcut does not.
+  - **The coach's day is still the server's day.**
+    `chat_service.generate_chat_response` rebuilds with `datetime.now().date()` and
+    `get_enhanced_context` calls `get_or_create_context` with no date, while the
+    context endpoints and the daily reset now use the caller's offset. Inert today —
+    the coach rebuilds from source tables every reply, so it never reads the reset's
+    row — but the two halves disagree about which row is "today" for an offset user.
+    Propagating the offset through `generate_chat_response` is its own change.
   - **The re-scoped question**, which is much smaller than a use-case: *should the
     cached-context endpoint rebuild, or declare its staleness?* Answer that first. If it
     rebuilds, the 14 calls are dead and the question becomes a deletion. If it does not,

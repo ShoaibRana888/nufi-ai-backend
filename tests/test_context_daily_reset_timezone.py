@@ -167,3 +167,31 @@ def test_ensure_daily_context_still_defaults_to_the_server_date():
     source = inspect.getsource(ChatContextManager.ensure_daily_context)
     assert 'if today is None' in source
     assert 'datetime.now().date()' in source
+
+
+# --- a row that is not the user's day is not "current", in either direction --
+
+
+def test_a_future_dated_row_still_reports_a_new_day(client, monkeypatch):
+    """The `<` comparison called a row ahead of today "current".
+
+    Once `today` comes from the caller's offset, the newest stored row can be
+    ahead of it: a server-dated row written before this handler took an offset,
+    or a user who has travelled west. Reading that as current left the user's
+    actual day with no context and the client never called the reset.
+    """
+    wire(monkeypatch, FakeContextManager(
+        stored_date=str(user_today(BEHIND_MINUTES) + timedelta(days=1))))
+
+    body = client.get(f'{CHECK}/{USER}', headers=BEHIND).json()
+
+    assert body['needs_reset'] is True
+
+
+def test_a_row_for_the_users_day_is_current(client, monkeypatch):
+    wire(monkeypatch, FakeContextManager(
+        stored_date=str(user_today(BEHIND_MINUTES))))
+
+    body = client.get(f'{CHECK}/{USER}', headers=BEHIND).json()
+
+    assert body['needs_reset'] is False

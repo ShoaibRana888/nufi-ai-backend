@@ -32,6 +32,16 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
             entry_date
         )
 
+        # A row the user has hidden from the coach must stay hidden. The
+        # incremental context update below merges the payload in blind -- it
+        # never consults shared_with_chat -- so refreshing a hidden row would
+        # write the value straight back into chat_contexts and undo the
+        # rebuild that PATCH /sharing/{user_id} performs. The full rebuild on
+        # the read path filters correctly; only this shortcut does not.
+        hidden_from_chat = bool(existing_entry) and (
+            existing_entry.get('shared_with_chat') is False
+        )
+
         water_entry_data = {
             'user_id': water_data.user_id,
             'date': str(entry_date),  # Convert date to string for Supabase
@@ -58,13 +68,14 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
             result = {"success": True, "id": created_entry['id'], "entry": created_entry}
 
         # Update chat context
-        context_manager = get_context_manager()
-        await context_manager.update_context_activity(
-            water_data.user_id,
-            'water',
-            water_entry_data,
-            entry_date
-        )
+        if not hidden_from_chat:
+            context_manager = get_context_manager()
+            await context_manager.update_context_activity(
+                water_data.user_id,
+                'water',
+                water_entry_data,
+                entry_date
+            )
 
         return result
 
