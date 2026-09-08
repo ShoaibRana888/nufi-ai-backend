@@ -5,17 +5,27 @@ from typing import Optional, Dict, Any
 from services.supabase_service import get_supabase_service
 from services.chat_context_manager import get_context_manager
 from services.chat_service import get_chat_service
-from utils.timezone_utils import get_timezone_offset, get_user_now
+from utils.timezone_utils import get_timezone_offset, get_user_now, get_user_today
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 @router.get("/context/{user_id}")
-async def get_user_chat_context(user_id: str, date: Optional[str] = None):
-    """Get user context - now using cached system"""
+async def get_user_chat_context(
+    user_id: str,
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset),
+):
+    """Get user context - now using cached system.
+
+    The client always sends `date`, so the fallback is the rare path; it
+    resolves to the user's day rather than the server's so it agrees with the
+    row `/context/daily-reset` writes.
+    """
     try:
         context_manager = get_context_manager()
-        
-        target_date = datetime.strptime(date, '%Y-%m-%d').date() if date else datetime.now().date()
+
+        target_date = (datetime.strptime(date, '%Y-%m-%d').date() if date
+                       else get_user_today(tz_offset))
         result = await context_manager.get_or_create_context(user_id, target_date)
         
         # Format to match old structure for compatibility
@@ -58,12 +68,17 @@ async def cleanup_old_contexts(days_to_keep: int = 7):
         }
     
 @router.get("/context/cached/{user_id}")
-async def get_cached_context(user_id: str, date: Optional[str] = None):
+async def get_cached_context(
+    user_id: str,
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset),
+):
     """Get cached context for user - much faster than rebuilding"""
     try:
         context_manager = get_context_manager()
-        
-        target_date = datetime.strptime(date, '%Y-%m-%d').date() if date else datetime.now().date()
+
+        target_date = (datetime.strptime(date, '%Y-%m-%d').date() if date
+                       else get_user_today(tz_offset))
         result = await context_manager.get_or_create_context(user_id, target_date)
         
         return {
@@ -181,13 +196,20 @@ async def rebuild_chat_context(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.get("/context/check/{user_id}")
-async def check_context_date(user_id: str):
-    """Check if context needs daily reset"""
+async def check_context_date(
+    user_id: str, tz_offset: int = Depends(get_timezone_offset)
+):
+    """Check if context needs daily reset.
+
+    "A new day" is the user's day, not the server's. This route was
+    unreachable until the /chat prefix fix, so the server-clock version it
+    shipped with had never actually run.
+    """
     try:
         from services.chat_context_manager import get_context_manager
         context_manager = get_context_manager()
-        
-        today = datetime.now().date()
+
+        today = get_user_today(tz_offset)
         
         # Check for existing context
         response = context_manager.supabase_service.client.table('chat_contexts')\
@@ -199,7 +221,13 @@ async def check_context_date(user_id: str):
         
         if response.data:
             last_context_date = datetime.strptime(response.data[0]['date'], '%Y-%m-%d').date()
-            needs_reset = last_context_date < today
+            # `!=`, not `<`. The query takes the newest row, and now that
+            # `today` comes from the caller's offset that row can be *ahead*
+            # of it -- a server-dated row written before this handler took an
+            # offset, or a user who has travelled west. `<` called those
+            # current and never reset, leaving the user's actual day with no
+            # context at all.
+            needs_reset = last_context_date != today
             
             return {
                 "needs_reset": needs_reset,
@@ -217,18 +245,21 @@ async def check_context_date(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/context/daily-reset/{user_id}")
-async def daily_context_reset(user_id: str):
-    """Create fresh context for a new day"""
+async def daily_context_reset(
+    user_id: str, tz_offset: int = Depends(get_timezone_offset)
+):
+    """Create fresh context for a new day -- the user's day, not the server's."""
     try:
         from services.chat_context_manager import get_context_manager
         context_manager = get_context_manager()
-        
-        result = await context_manager.ensure_daily_context(user_id)
-        
+
+        today = get_user_today(tz_offset)
+        result = await context_manager.ensure_daily_context(user_id, today)
+
         return {
             "success": True,
             "is_new": result.get('is_new', False),
-            "date": str(datetime.now().date()),
+            "date": str(today),
             "message": "Daily context ready"
         }
 
