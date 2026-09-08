@@ -706,9 +706,19 @@ class ChatContextManager:
         except Exception as e:
             print(f"⚠️ Error saving context: {e}")
 
-    async def ensure_daily_context(self, user_id: str) -> Dict[str, Any]:
-        """Ensure a context exists for today"""
-        today = datetime.now().date()
+    async def ensure_daily_context(
+        self, user_id: str, today: Optional[date] = None
+    ) -> Dict[str, Any]:
+        """Ensure a context exists for today.
+
+        `today` is the *user's* date. Callers that have a timezone offset
+        should pass it; "today" on the server clock is a different day for
+        anyone far enough east or west, and this method decides which row
+        counts as current. Defaults to the server date so the internal
+        caller (`get_or_create_context` with no date) is unchanged.
+        """
+        if today is None:
+            today = datetime.now().date()
         
         try:
             response = self.supabase_service.client.table('chat_contexts')\

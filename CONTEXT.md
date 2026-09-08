@@ -163,6 +163,13 @@ designed interface, not an accident.
   `tests/test_by_date_reads_propagate_errors.py`. **The corollary for tests:** stubbing
   the method under a composition proves the composition, not the system — those tests
   passed for a year against leaves that could not raise.
+- **A route that has never run has never been tested.** Fixing the doubled `/chat`
+  prefix made `check_context_date` and `daily_context_reset` reachable for the first
+  time, and both computed "today" from `datetime.now().date()` — the server clock —
+  while every other date-sensitive endpoint takes `get_timezone_offset`. For a user
+  far enough east of the Oregon region, a row dated to the server's today compared
+  equal to "today" and the reset never fired. Making dormant code reachable is a
+  behaviour change: read it before shipping the fix that switches it on.
 - **Two handlers can claim one route, and the loser is silent.** Starlette matches in
   registration order; the first wins with no warning. Twenty-odd routers share a handful
   of prefixes here, and it has already happened once (`/daily-summary`).
@@ -209,6 +216,11 @@ designed interface, not an accident.
     `GET /api/health/chat/context/{user_id}`, which serves stored `context_data`
     verbatim — `get_or_create_context` does no freshness check and the `version` column
     is written but never read for any decision.
+  - *Amended after reviewing that work:* one of the 14 could not fire on its
+    common path. `api/water.py`'s upsert returned early on the **update** branch,
+    skipping the refresh below the `if/else`, so only the day's *first* glass
+    refreshed the context. Fixed; `tests/test_water_context_refresh.py` covers
+    both branches. A call site is not a call.
   - **The re-scoped question**, which is much smaller than a use-case: *should the
     cached-context endpoint rebuild, or declare its staleness?* Answer that first. If it
     rebuilds, the 14 calls are dead and the question becomes a deletion. If it does not,
