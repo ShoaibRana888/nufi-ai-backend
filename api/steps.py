@@ -6,7 +6,6 @@ import uuid
 
 from models.step_schemas import StepEntryCreate
 from services.supabase_service import get_supabase_service
-from services.chat_context_manager import get_context_manager
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
@@ -54,17 +53,6 @@ async def save_step_entry(step_data: StepEntryCreate, tz_offset: int = Depends(g
             step_entry_data['id'] = str(uuid.uuid4())
             step_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             stored_entry = await supabase_service.create_step_entry(step_entry_data)
-
-        # Refresh with the row the store returned, not the write payload: only
-        # the stored row carries shared_with_chat, and the context manager
-        # skips a hidden one.
-        context_manager = get_context_manager()
-        await context_manager.update_context_activity(
-            step_data.userId,
-            'steps',
-            stored_entry,
-            entry_date
-        )
 
         return {"success": True, "id": stored_entry['id'], "entry": stored_entry}
 
@@ -178,7 +166,6 @@ async def delete_step_entry(user_id: str, date: str, tz_offset: int = Depends(ge
         print(f"🚶 Deleting step entry for user: {user_id}, date: {date}")
 
         supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
 
         # Parse date
         entry_date = get_user_date(date, tz_offset)
@@ -187,14 +174,6 @@ async def delete_step_entry(user_id: str, date: str, tz_offset: int = Depends(ge
         success = await supabase_service.delete_step_entry_by_date(user_id, entry_date)
 
         if success:
-            # Update context - reset steps to 0
-            await context_manager.update_context_activity(
-                user_id,
-                'steps',
-                {'steps': 0},
-                entry_date
-            )
-
             return {"success": True, "message": "Step entry deleted successfully"}
         else:
             return {"success": False, "message": "Step entry not found"}

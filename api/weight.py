@@ -5,7 +5,6 @@ import uuid
 
 from models.weight_schemas import WeightEntryCreate
 from services.supabase_service import get_supabase_service
-from services.chat_context_manager import get_context_manager
 from services.health_trends import weight_direction
 from utils.timezone_utils import get_timezone_offset, get_user_now
 
@@ -53,18 +52,6 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
 
         # ✅ NEW: Initialize starting weight if this is user's first entry
         await supabase_service.initialize_starting_weight_for_user(weight_data.user_id)
-
-        # Update chat context (use date only from datetime). Pass the row the
-        # store returned, not the write payload: only the stored row carries
-        # shared_with_chat, and the context manager skips a hidden one.
-        context_manager = get_context_manager()
-        entry_date_only = entry_datetime.date()
-        await context_manager.update_context_activity(
-            weight_data.user_id,
-            'weight',
-            created_entry,
-            entry_date_only
-        )
 
         return {"success": True, "id": created_entry['id'], "entry": created_entry}
 
@@ -119,7 +106,6 @@ async def delete_weight_entry(entry_id: str):
         print(f"⚖️ Deleting weight entry: {entry_id}")
 
         supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
 
         # Get entry details before deletion
         entry = await supabase_service.get_weight_entry_by_id(entry_id)
@@ -134,13 +120,6 @@ async def delete_weight_entry(entry_id: str):
         if success:
             # Update context - remove weight for that date
             entry_date = datetime.fromisoformat(entry['date']).date()
-            await context_manager.update_context_activity(
-                user_id,
-                'weight',
-                {'weight': None},  # Set to None to indicate no weight for today
-                entry_date
-            )
-
             # ✅ NEW: Update user's profile weight after deletion
             latest_weight_entry = await supabase_service.get_latest_weight(user_id)
 

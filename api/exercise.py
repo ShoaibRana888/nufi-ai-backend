@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import uuid
 
 from services.supabase_service import get_supabase_service
-from services.chat_context_manager import get_context_manager
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
@@ -125,15 +124,6 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
         print(f"💪 Processed exercise data: {exercise_log_data}")
 
         created_log = await supabase_service.create_exercise_log(exercise_log_data)
-
-        context_manager = get_context_manager()
-        exercise_date_obj = datetime.fromisoformat(exercise_date.isoformat()).date()
-        await context_manager.update_context_activity(
-            exercise_data.get('user_id'),
-            'exercise',
-            created_log,
-            exercise_date_obj
-        )
 
         return {"success": True, "id": created_log['id'], "exercise": created_log}
 
@@ -272,7 +262,6 @@ async def delete_exercise_log(exercise_id: str):
         print(f"💪 Deleting exercise log: {exercise_id}")
 
         supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
 
         # Get exercise details before deletion
         exercise = await supabase_service.get_exercise_by_id(exercise_id)
@@ -285,13 +274,6 @@ async def delete_exercise_log(exercise_id: str):
         if success:
             # Update context - remove this specific exercise
             exercise_date = datetime.fromisoformat(exercise['exercise_date']).date()
-            await context_manager.remove_from_context(
-                exercise['user_id'],  # Get user_id from the exercise record
-                'exercise',
-                exercise_id,
-                exercise_date
-            )
-
             return {"success": True, "message": "Exercise deleted successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to delete exercise")
