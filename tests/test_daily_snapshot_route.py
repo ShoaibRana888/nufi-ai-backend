@@ -106,3 +106,26 @@ def test_a_store_failure_is_a_500_not_a_blank_day(client, monkeypatch):
     monkeypatch.setattr(endpoint, 'get_supabase_service', lambda: fake)
 
     assert client.get(f'{PATH}/u1/2026-09-06').status_code == 500
+
+
+def test_a_failed_read_is_reported_without_its_message(client, monkeypatch):
+    """What the store recorded stays in the server log; the body carries a
+    token. Asserted on the response bytes, not the shaped dict, because
+    this is the boundary the message must not cross."""
+    fake = FakeStore(day={
+        'meals': [], 'exercise': [], 'supplements': {}, 'water': {},
+        'steps': {}, 'sleep': {}, 'weight': {}, 'period': {},
+        '_read_errors': {
+            'sleep': "{'message': 'relation \"sleep_entries\" does not exist', "
+                     "'code': '42P01', 'hint': None, 'details': None}",
+        },
+    })
+    monkeypatch.setattr(endpoint, 'get_supabase_service', lambda: fake)
+
+    response = client.get(f'{PATH}/u1/2026-09-06')
+
+    assert response.status_code == 200
+    assert response.json()['_read_errors'] == {'sleep': 'read_failed'}
+    assert 'sleep' not in response.json()
+    for leaked in ('42P01', 'relation', 'does not exist'):
+        assert leaked not in response.text, leaked
