@@ -94,8 +94,9 @@ class RecordingWeeklyManager:
     def __init__(self):
         self.current, self.recent = [], []
 
-    async def get_or_create_weekly_context(self, user_id, target_date):
+    async def get_or_create_weekly_context(self, user_id, target_date, today=None):
         self.current.append(target_date)
+        self.today_seen = today
         return {'summary': {}}
 
     async def get_recent_weeks_context(self, user_id, weeks_count=4, end_date=None):
@@ -154,6 +155,10 @@ def test_the_service_rebuilds_and_reads_the_day_it_is_given(wired):
     assert context.read == [day], 'the cached read must target the same day'
     assert weekly.current == [day] and weekly.recent == [day], (
         '"this week" is the week containing the user\'s today'
+    )
+    assert weekly.today_seen == day, (
+        'the weekly manager must also be told whose today it is, because it '
+        'judges "is this week still current" against it'
     )
 
 
@@ -225,3 +230,110 @@ def test_nothing_on_the_chat_path_reads_the_server_clock():
         ChatContextManager.ensure_daily_context,
     ):
         assert 'now().date()' not in inspect.getsource(func), func.__qualname__
+
+
+# --- the weekly manager judges "current week" on the user's day ----------------
+
+
+class _WeeklyRow:
+    """A fake Supabase client holding one cached, non-empty weekly row."""
+
+    def __init__(self):
+        self.deleted = False
+
+        outer = self
+
+        class _Query:
+            def __init__(self, table):
+                self.table = table
+                self.op = 'select'
+
+            def __getattr__(self, name):
+                if name == 'delete':
+                    def _delete():
+                        self.op = 'delete'
+                        return self
+                    return _delete
+                return lambda *a, **k: self
+
+            def execute(self):
+                if self.op == 'delete':
+                    outer.deleted = True
+                    return type('R', (), {'data': []})()
+                return type('R', (), {'data': [{
+                    'context_data': {'week_info': {'days_logged': 5}},
+                    'summary_data': {'cached': True},
+                    'version': 1,
+                    'updated_at': '2026-09-06T00:00:00',
+                }]})()
+
+        class _Client:
+            def table(self, name):
+                return _Query(name)
+
+        self.client = _Client()
+
+
+def _weekly_manager(client):
+    from services.weekly_context_manager import WeeklyContextManager
+    manager = WeeklyContextManager.__new__(WeeklyContextManager)
+    manager.supabase_service = type('S', (), {'client': client.client})()
+    manager.scheduled = []
+    manager._schedule_current_week_refresh = lambda *a: manager.scheduled.append(a)
+    return manager
+
+
+def test_a_western_users_live_sunday_is_still_the_current_week():
+    """UTC has reached Monday; the user is still on Sunday (UTC-8, evening).
+
+    Judged on the server date, that Sunday's week is "completed" and the
+    cached row is served without a refresh -- and keeps being served, since
+    completed weeks are never revalidated. Everything the user logs for the
+    rest of their Sunday is dropped from that week for good. Judged on the
+    user's day, the week is current: the cache is served and a refresh is
+    scheduled, as for any other current week.
+    """
+    users_sunday = date(2026, 9, 13)          # a Sunday
+    client = _WeeklyRow()
+    manager = _weekly_manager(client)
+
+    result = asyncio.run(manager.get_or_create_weekly_context(
+        USER, users_sunday, today=users_sunday))
+
+    assert result['success'] is True
+    assert result['week_end'] == str(users_sunday)
+    assert manager.scheduled, (
+        'a week that is still current for the user must go down the '
+        'stale-while-revalidate path, not be frozen as completed'
+    )
+    assert not client.deleted
+
+
+def test_a_genuinely_past_week_is_served_from_cache():
+    last_sunday = date(2026, 9, 6)
+    client = _WeeklyRow()
+    manager = _weekly_manager(client)
+
+    result = asyncio.run(manager.get_or_create_weekly_context(
+        USER, last_sunday, today=date(2026, 9, 13)))
+
+    assert result['summary'] == {'cached': True}
+    assert manager.scheduled == []
+
+
+def test_recent_weeks_judge_currency_on_the_same_day_they_count_back_from():
+    seen = []
+
+    async def fake(user_id, target_date, today=None):
+        seen.append((target_date, today))
+        return {'success': True}
+
+    from services.weekly_context_manager import WeeklyContextManager
+    manager = WeeklyContextManager.__new__(WeeklyContextManager)
+    manager.get_or_create_weekly_context = fake
+    users_today = date(2026, 9, 13)
+
+    asyncio.run(manager.get_recent_weeks_context(USER, weeks_count=2, end_date=users_today))
+
+    assert seen == [(users_today, users_today),
+                    (users_today - timedelta(weeks=1), users_today)]

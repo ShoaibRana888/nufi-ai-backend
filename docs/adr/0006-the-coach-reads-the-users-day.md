@@ -82,10 +82,16 @@ regenerated for `datetime.now().date()` on a failed cache read.
 - **A live behaviour change for a real share of traffic**, not a latent one — 39% of
   historical chats fell in the affected window. Worth watching the first evening of
   chats after deploy.
-- The weekly window moves with the user's day. Only visible on the night a week turns
-  over; the current-week staleness check (`week_end >= datetime.now().date()`) still
-  reads the server clock and was left alone — a few hours' difference on a TTL decision
-  is immaterial.
+- The weekly window moves with the user's day. This ADR first said the current-week
+  check (`week_end >= datetime.now().date()`) could stay on the server clock because
+  "a few hours' difference on a TTL decision is immaterial". **Wrong, caught in
+  review:** it is not a TTL decision. A week judged *completed* is served from cache
+  and never revalidated, so a UTC-8 user still on Sunday evening when UTC reaches
+  Monday would have the rest of that Sunday dropped from the week — permanently.
+  `get_or_create_weekly_context` now takes `today` and judges currency on it; the
+  chat path passes the user's day to it and through `get_recent_weeks_context`.
+  Other callers (`api/weekly_context.py`, `api/debug.py`) default to the server date
+  and carry the same defect on their own routes — the "its own change" already noted.
 - `tests/test_context_daily_reset_timezone.py` had pinned `ensure_daily_context`'s
   server-date default as "unchanged for the internal caller". That pin is retired
   with the caller; the inverse — the date is required — is pinned in the new file.
