@@ -26,6 +26,15 @@ CONTRACT_SECTIONS = ('meals', 'water', 'steps', 'sleep', 'exercise', 'weight',
 # missing, and it is omitted. Mirrors the client's _entrySection.
 ROW_SECTIONS = ('water', 'steps', 'sleep', 'weight')
 
+# The one value `_read_errors` carries. The store's map holds the raw
+# exception text, which for a PostgREST failure is the SQL message, the
+# Postgres error code and a hint naming tables and columns, and for an HTTP
+# failure the request URL with the project host in it. This route has no
+# auth, and the client reads only the *key* -- `Section.error` holds the
+# value and nothing renders it -- so the value is an opaque token. The
+# missing-vs-error distinction is carried by presence, not by the message.
+READ_FAILED = 'read_failed'
+
 # The four the contract names, plus the three /daily-summary already returns
 # and MealApi already maps. Additive: dropping them would make migrating off
 # /daily-summary a regression for whoever reads fiber.
@@ -104,7 +113,9 @@ def snapshot_from_day(
 
     A client that ignores `_read_errors` sees a failed section as an empty one,
     which is how it degrades today; one that reads it can tell a broken tracker
-    from a quiet day. Same rule, and the same key, as the store's day reads.
+    from a quiet day. Same rule, and the same key, as the store's day reads --
+    but not the same value: the store's message is for the server log, and the
+    wire carries `READ_FAILED` in its place.
 
     Roll-up sections (meals, exercise, supplements) are always present when
     their read succeeded, carrying zeros for a day with nothing logged -- "you
@@ -128,7 +139,7 @@ def snapshot_from_day(
         if values[key] is not None:
             snapshot[key] = values[key]
 
-    snapshot['_read_errors'] = {key: message for key, message in errors.items()
+    snapshot['_read_errors'] = {key: READ_FAILED for key in errors
                                 if key in CONTRACT_SECTIONS}
     return snapshot
 

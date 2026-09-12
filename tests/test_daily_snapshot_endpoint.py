@@ -9,6 +9,7 @@ for, and a section whose read failed must be three distinguishable answers.
 `snapshot_from_day` is pure, so all of this is exercised without FastAPI, a
 database or an event loop.
 """
+import json
 from datetime import date
 
 import pytest
@@ -97,7 +98,29 @@ def test_a_failed_section_is_omitted_and_named_in_read_errors():
     snapshot = snapshot_from_day(USER, DAY, day)
 
     assert 'sleep' not in snapshot
-    assert snapshot['_read_errors'] == {'sleep': 'sleep_entries exploded'}
+    assert snapshot['_read_errors'] == {'sleep': 'read_failed'}
+
+
+def test_the_stores_error_message_never_reaches_the_wire():
+    """The value is an opaque token, whatever the store recorded.
+
+    A real PostgREST failure string carries the SQL message, the Postgres
+    error code and a hint naming tables and columns; an HTTP failure carries
+    the request URL. The route has no auth, and the client only reads the
+    key. So the message stays in the server log and the body says
+    `read_failed` -- for every failed section, identically.
+    """
+    postgrest = ("{'message': 'column daily_water.total_glasses does not exist', "
+                 "'code': '42703', 'hint': 'Perhaps you meant \"daily_water.total_ml\"'}")
+    http = ("Server error '500' for url "
+            "'https://wehzxcqudlfvewilgokf.supabase.co/rest/v1/daily_steps'")
+    day = full_day(water={}, steps={}, _read_errors={'water': postgrest, 'steps': http})
+
+    snapshot = snapshot_from_day(USER, DAY, day)
+
+    assert snapshot['_read_errors'] == {'water': 'read_failed', 'steps': 'read_failed'}
+    for leaked in ('daily_water', '42703', 'total_ml', 'supabase.co', 'daily_steps'):
+        assert leaked not in json.dumps(snapshot), leaked
 
 
 def test_a_failed_section_is_distinguishable_from_an_empty_one():
