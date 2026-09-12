@@ -41,11 +41,22 @@ class WeeklyContextManager:
     async def get_or_create_weekly_context(
         self, 
         user_id: str, 
-        target_date: date = None
+        target_date: date = None,
+        today: Optional[date] = None,
     ) -> Dict[str, Any]:
-        """Get or create weekly context for a given date"""
+        """Get or create weekly context for the week containing `target_date`.
+
+        `today` is the user's date, and decides whether that week is still
+        the *current* one. Callers with an offset (the chat path) pass it;
+        the server date is the default for the rest. It matters: a week
+        judged complete is served from cache and never refreshed, so a
+        western user still on Sunday when UTC has reached Monday would have
+        the rest of that Sunday dropped from the week -- for good.
+        """
         if target_date is None:
             target_date = datetime.now().date()
+        if today is None:
+            today = datetime.now().date()
         
         week_start, week_end = self.get_week_boundaries(target_date)
         week_number, year = self.get_week_number(target_date)
@@ -54,8 +65,9 @@ class WeeklyContextManager:
         # so its snapshot goes stale as activities are logged. We serve it via
         # stale-while-revalidate (see CURRENT_WEEK_TTL_SECONDS) instead of
         # rebuilding on every read. Past, completed weeks are safe to serve
-        # straight from cache.
-        is_current_week = week_end >= datetime.now().date()
+        # straight from cache -- which is why "past" has to be judged on the
+        # user's day, not the server's.
+        is_current_week = week_end >= today
 
         try:
             # Check if weekly context exists
@@ -771,16 +783,24 @@ class WeeklyContextManager:
     async def get_recent_weeks_context(
         self,
         user_id: str,
-        weeks_count: int = 4
+        weeks_count: int = 4,
+        end_date: Optional[date] = None
     ) -> List[Dict[str, Any]]:
-        """Get context for recent weeks"""
+        """Get context for recent weeks, counting back from `end_date`.
+
+        `end_date` is the user's today when the caller has it (the chat
+        path does); the server date otherwise.
+        """
         try:
-            end_date = datetime.now().date()
+            if end_date is None:
+                end_date = datetime.now().date()
             contexts = []
             
             for week_offset in range(weeks_count):
                 target_date = end_date - timedelta(weeks=week_offset)
-                week_context = await self.get_or_create_weekly_context(user_id, target_date)
+                week_context = await self.get_or_create_weekly_context(
+                    user_id, target_date, today=end_date
+                )
                 if week_context.get('success'):
                     contexts.append(week_context)
             

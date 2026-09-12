@@ -10,13 +10,14 @@ class ChatContextManager:
     def __init__(self):
         self.supabase_service = get_supabase_service()
     
-    async def get_or_create_context(self, user_id: str, target_date: date = None) -> Dict[str, Any]:
-        """Get existing context or create a new one for the specified date"""
-        if target_date is None:
-            # For today, use the ensure_daily_context method
-            return await self.ensure_daily_context(user_id)
-        
-        # For specific dates, use the existing logic
+    async def get_or_create_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
+        """Get existing context or create a new one for the specified date.
+
+        The date is required. It used to default to the server clock via
+        `ensure_daily_context`, and the coach read its context through that
+        default -- a different day from the one the trackers write for any
+        user not on UTC. Callers know whose day they mean; say so.
+        """
         try:
             # Try to get existing context
             response = self.supabase_service.client.table('chat_contexts')\
@@ -727,20 +728,15 @@ class ChatContextManager:
         except Exception as e:
             print(f"⚠️ Error saving context: {e}")
 
-    async def ensure_daily_context(
-        self, user_id: str, today: Optional[date] = None
-    ) -> Dict[str, Any]:
+    async def ensure_daily_context(self, user_id: str, today: date) -> Dict[str, Any]:
         """Ensure a context exists for today.
 
-        `today` is the *user's* date. Callers that have a timezone offset
-        should pass it; "today" on the server clock is a different day for
-        anyone far enough east or west, and this method decides which row
-        counts as current. Defaults to the server date so the internal
-        caller (`get_or_create_context` with no date) is unchanged.
+        `today` is the *user's* date, and it is required. "Today" on the
+        server clock is a different day for anyone far enough east or west,
+        and this method decides which row counts as current. The server-date
+        default existed for `get_or_create_context`'s dateless form, which
+        is gone.
         """
-        if today is None:
-            today = datetime.now().date()
-        
         try:
             response = self.supabase_service.client.table('chat_contexts')\
                 .select('*')\

@@ -161,8 +161,11 @@ class HealthChatService:
             user_id, target_date
         )
     
-    async def get_user_context(self, user_id: str) -> Dict[str, Any]:
-        """Get comprehensive user context for chat"""
+    async def get_user_context(self, user_id: str, today: date) -> Dict[str, Any]:
+        """Get comprehensive user context for chat.
+
+        `today` is the user's date -- see `generate_chat_response`.
+        """
         try:
             # Get user profile
             user = await self.supabase_service.get_user_by_id(user_id)
@@ -170,7 +173,6 @@ class HealthChatService:
                 return {}
             
             # Get today's activities using your existing method
-            today = datetime.now().date()
             activities = await self.get_today_activities(user_id, today)
             
             # Get yesterday's activities for sleep
@@ -248,29 +250,34 @@ class HealthChatService:
             print(f"❌ Error getting user context: {e}")
             import traceback
             traceback.print_exc()
-            return self._get_empty_context()
+            return self._get_empty_context(today)
         
-    async def get_enhanced_context(self, user_id: str) -> Dict[str, Any]:
-        """Get enhanced context using cache"""
+    async def get_enhanced_context(self, user_id: str, today: date) -> Dict[str, Any]:
+        """The cached context for the user's `today`.
+
+        Reads the same row `generate_chat_response` just rebuilt. Passing the
+        date is what keeps the two halves on one day; the dateless form of
+        `get_or_create_context` resolved "today" on the server clock.
+        """
         try:
             from services.chat_context_manager import get_context_manager
             
             context_manager = get_context_manager()
-            result = await context_manager.get_or_create_context(user_id)
+            result = await context_manager.get_or_create_context(user_id, today)
             
             return result['context']
             
         except Exception as e:
             print(f"Error getting enhanced context: {e}")
             # Fallback to regular context
-            return await self.get_user_context(user_id)
+            return await self.get_user_context(user_id, today)
     
-    def _get_empty_context(self) -> Dict[str, Any]:
+    def _get_empty_context(self, today: date) -> Dict[str, Any]:
         """Return empty context structure when error occurs"""
         return {
             'user_profile': {},
             'today_progress': {
-                'date': str(datetime.now().date()),
+                'date': str(today),
                 'meals_logged': 0,
                 'total_calories': 0,
                 'total_protein': 0,
@@ -422,8 +429,19 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
 
         return prompt
     
-    async def generate_chat_response(self, user_id: str, message: str) -> str:
-        """Generate chat response with message persistence and guardrails"""
+    async def generate_chat_response(
+        self, user_id: str, message: str, today: date
+    ) -> str:
+        """Generate chat response with message persistence and guardrails.
+
+        `today` is the *user's* date, resolved by the endpoint from the
+        request's timezone offset. Every tracker write is keyed by the user's
+        day, so the coach has to read the same day: with the server clock
+        (UTC) a user five hours east spends 00:00-05:00 local being shown
+        yesterday as "today", and anything logged after local midnight is
+        invisible. Required rather than defaulted so the server-day fallback
+        cannot creep back in.
+        """
         try:
             print(f"💬 Generating chat response for user: {user_id}")
             
@@ -453,19 +471,18 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
             # sees the latest logged activities, regardless of the client.
             try:
                 from services.chat_context_manager import get_context_manager
-                from datetime import datetime as _dt
-                await get_context_manager().rebuild_context(user_id, _dt.now().date())
+                await get_context_manager().rebuild_context(user_id, today)
                 print("🔄 Rebuilt today's context before generating reply")
             except Exception as e:
                 print(f"⚠️ Could not rebuild today's context before reply (using cached): {e}")
 
             # Try comprehensive context first, fallback to basic
             try:
-                user_context = await self.get_comprehensive_context(user_id, include_weeks=4)
+                user_context = await self.get_comprehensive_context(user_id, today, include_weeks=4)
                 print(f"📊 Using comprehensive context with weekly data: {user_context.get('has_weekly_data', False)}")
             except Exception as e:
                 print(f"⚠️ Falling back to basic context: {e}")
-                user_context = await self.get_enhanced_context(user_id)
+                user_context = await self.get_enhanced_context(user_id, today)
             
             # Get recent messages
             recent_messages = []
@@ -530,17 +547,24 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
             traceback.print_exc()
             return f"I'm having trouble connecting to my AI service. Please try again."
 
-    async def get_comprehensive_context(self, user_id: str, include_weeks: int = 4) -> Dict[str, Any]:
+    async def get_comprehensive_context(
+        self, user_id: str, today: date, include_weeks: int = 4
+    ) -> Dict[str, Any]:
         """Get comprehensive context including daily and weekly data"""
         try:
             # Get basic context first
-            basic_context = await self.get_enhanced_context(user_id)
+            basic_context = await self.get_enhanced_context(user_id, today)
             
-            # Try to add weekly context if available
+            # Try to add weekly context if available. "This week" is the
+            # week containing the user's today, for the same reason.
             if self.weekly_manager:
                 try:
-                    current_week = await self.weekly_manager.get_or_create_weekly_context(user_id)
-                    previous_weeks = await self.weekly_manager.get_recent_weeks_context(user_id, weeks_count=include_weeks)
+                    current_week = await self.weekly_manager.get_or_create_weekly_context(
+                        user_id, today, today=today
+                    )
+                    previous_weeks = await self.weekly_manager.get_recent_weeks_context(
+                        user_id, weeks_count=include_weeks, end_date=today
+                    )
                     
                     # Add weekly data to context
                     basic_context['current_week'] = current_week.get('summary', {})
@@ -558,7 +582,7 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
             
         except Exception as e:
             print(f"Error getting comprehensive context: {e}")
-            return await self.get_enhanced_context(user_id)
+            return await self.get_enhanced_context(user_id, today)
 
     def _create_enhanced_system_prompt(self, context: Dict[str, Any]) -> str:
         """Create system prompt with weekly context if available"""
