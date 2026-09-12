@@ -170,6 +170,12 @@ designed interface, not an accident.
   far enough east of the Oregon region, a row dated to the server's today compared
   equal to "today" and the reset never fired. Making dormant code reachable is a
   behaviour change: read it before shipping the fix that switches it on.
+- **The server clock is UTC.** Confirmed from `chat_contexts` rows, not assumed:
+  `context_metadata.created_at` (server `datetime.now()`) and the DB-side
+  `created_at` (`now()`) agree to the tenth of a second. So `datetime.now().date()`
+  is the UTC date, and for a UTC+5 user it is yesterday until 05:00 local. Every
+  "which day" decision takes the user's date as an argument; the places that still
+  read the server clock are listed in ADR-0006 with the reason each is allowed to.
 - **Two handlers can claim one route, and the loser is silent.** Starlette matches in
   registration order; the first wins with no warning. Twenty-odd routers share a handful
   of prefixes here, and it has already happened once (`/daily-summary`).
@@ -228,13 +234,18 @@ designed interface, not an accident.
     hidden row; **meals, steps, sleep, exercise, weight and supplements still do
     not** — same hole, six more call sites, its own fix. The full rebuild on the
     read path filters correctly; only this shortcut does not.
-  - **The coach's day is still the server's day.**
-    `chat_service.generate_chat_response` rebuilds with `datetime.now().date()` and
-    `get_enhanced_context` calls `get_or_create_context` with no date, while the
-    context endpoints and the daily reset now use the caller's offset. Inert today —
-    the coach rebuilds from source tables every reply, so it never reads the reset's
-    row — but the two halves disagree about which row is "today" for an offset user.
-    Propagating the offset through `generate_chat_response` is its own change.
+  - **The coach's day is the user's day** — fixed in
+    [ADR-0006](docs/adr/0006-the-coach-reads-the-users-day.md). This bullet used to
+    say the server-day rebuild was *inert* because the coach rebuilds from source
+    tables every reply. That was the wrong conclusion: the source tables are keyed by
+    the **user's** day, so the rebuild read a different day's rows than the ones
+    being written, for `|offset|` hours of every day — and 39% of all chat messages
+    ever sent fell inside that window. `generate_chat_response` now takes `today`
+    (a `date`, resolved by the endpoint from the offset) and hands the one value to
+    the rebuild, the cached read and the weekly window. The date is **required** on
+    every method that picks a day, including `get_or_create_context` and
+    `ensure_daily_context`, whose server-date defaults are gone. *Bounded* is not
+    *inert*: check what the rebuild actually reads.
   - **The re-scoped question**, which is much smaller than a use-case: *should the
     cached-context endpoint rebuild, or declare its staleness?* Answer that first. If it
     rebuilds, the 14 calls are dead and the question becomes a deletion. If it does not,

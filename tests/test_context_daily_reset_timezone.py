@@ -11,6 +11,10 @@ endpoint here takes `get_timezone_offset`.
 The service runs in Render's Oregon region, so a user far enough east is on the
 next day well before the server is. These tests drive the two routes with an
 explicit `X-Timezone-Offset` and assert the day they act on.
+
+The server-date default on `ensure_daily_context` that this file once pinned
+as "unchanged" is gone: its only caller was the coach's dateless read, and the
+coach now resolves its day the same way. See test_coach_day_is_the_users_day.py.
 """
 from datetime import date, datetime, timedelta
 
@@ -151,22 +155,6 @@ def test_reset_honours_a_western_offset_too(client, monkeypatch):
     client.post(f'{RESET}/{USER}', headers=BEHIND)
 
     assert manager.ensured == [user_today(BEHIND_MINUTES)]
-
-
-# --- the default is unchanged ----------------------------------------------
-
-def test_ensure_daily_context_still_defaults_to_the_server_date():
-    """The internal caller (get_or_create_context with no date) is unchanged."""
-    import inspect
-
-    from services.chat_context_manager import ChatContextManager
-
-    params = inspect.signature(ChatContextManager.ensure_daily_context).parameters
-    assert params['today'].default is None
-
-    source = inspect.getsource(ChatContextManager.ensure_daily_context)
-    assert 'if today is None' in source
-    assert 'datetime.now().date()' in source
 
 
 # --- a row that is not the user's day is not "current", in either direction --
