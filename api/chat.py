@@ -110,7 +110,7 @@ async def update_context_activity(
         return {
             'success': True,
             'message': f'Context updated for {activity_type}',
-            'version': result['version']
+            'version': result.get('version')
         }
         
     except Exception as e:

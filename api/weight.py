@@ -54,13 +54,15 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
         # ✅ NEW: Initialize starting weight if this is user's first entry
         await supabase_service.initialize_starting_weight_for_user(weight_data.user_id)
 
-        # Update chat context (use date only from datetime)
+        # Update chat context (use date only from datetime). Pass the row the
+        # store returned, not the write payload: only the stored row carries
+        # shared_with_chat, and the context manager skips a hidden one.
         context_manager = get_context_manager()
         entry_date_only = entry_datetime.date()
         await context_manager.update_context_activity(
             weight_data.user_id,
             'weight',
-            weight_entry_data,
+            created_entry,
             entry_date_only
         )
 
