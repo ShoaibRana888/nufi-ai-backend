@@ -29,7 +29,11 @@ designed interface, not an accident.
   time-of-day whenever the client omits `exercise_date`, because it falls back to
   `get_user_now()`, which returns a datetime. **Always filter a day with a half-open
   range** (`gte(date)` / `lt(next_day)`), which is correct for all three. The store's
-  by-date reads already do; reaching past them is how this bites.
+  by-date reads already do, and since 2026-09-12 so does the one surviving range read
+  on a timestamptz, `get_exercise_logs` — the last known `.lte` instance; three callers
+  ended their range on today and lost that day's time-of-day rows
+  (`tests/test_exercise_logs_date_range.py`). Reaching past the store is how this
+  bites next.
 - **Shared with chat** — a per-entry privacy flag (`shared_with_chat`). The store exposes
   it as a `shared_only: bool` parameter on the by-date reads
   (`get_meals_by_date(..., shared_only=True)`, `get_water_by_date`, `get_steps_by_date`, …).
@@ -169,7 +173,10 @@ designed interface, not an accident.
   them will not respect `shared_with_chat`, and its name will not say so. That is how the
   water/steps/sleep pairs arose — and in all three the unsafe variant was the *more* used
   one. `tests/test_store_by_date_surface.py` now pins the surface.
-- **A read reports failure; it does not return it as data.** The by-date reads used to
+- **A read reports failure; it does not return it as data.** *(Still open on the range
+  reads: `get_exercise_logs` swallows to `[]`, so `/exercise/stats` reports an
+  unreachable database as a week with no workouts. ADR-0004 fixed the by-date leaves
+  only.)* The by-date reads used to
   wrap every query in `try/except` and return the value that means "nothing logged" — a
   broken tracker and a quiet day were the same answer. That silently defeated the layer
   built on top of it (`_read_errors`), wrote duplicate rows on the upsert paths that
