@@ -1265,24 +1265,19 @@ class SupabaseService:
                 .order('exercise_date', desc=True)\
                 .limit(limit)
             
-            # Apply date filters if provided
-            if start_date and end_date:
-                if start_date == end_date:
-                    # ✅ For same day filtering, use date range for the entire day
-                    start_datetime = f"{start_date}T00:00:00"
-                    end_datetime = f"{end_date}T23:59:59"
-                    query = query.gte('exercise_date', start_datetime).lte('exercise_date', end_datetime)
-                    print(f"🔍 Same day filter: {start_datetime} to {end_datetime}")
-                else:
-                    # Different start and end dates
-                    query = query.gte('exercise_date', start_date).lte('exercise_date', end_date)
-                    print(f"🔍 Date range filter: {start_date} to {end_date}")
-            elif start_date:
+            # Half-open range on a timestamptz column: `exercise_date` carries a
+            # time-of-day whenever a writer stores one, and `.lte(end_date)`
+            # compares against midnight of that day -- dropping every workout
+            # logged during it. Each bound stands alone, so the same-day case
+            # is just the range [day, day+1) and needs no special form.
+            if start_date:
                 query = query.gte('exercise_date', start_date)
                 print(f"🔍 Start date filter: >= {start_date}")
-            elif end_date:
-                query = query.lte('exercise_date', end_date)
-                print(f"🔍 End date filter: <= {end_date}")
+            if end_date:
+                end_exclusive = (datetime.strptime(end_date, '%Y-%m-%d').date()
+                                 + timedelta(days=1))
+                query = query.lt('exercise_date', str(end_exclusive))
+                print(f"🔍 End date filter: < {end_exclusive}")
                 
             if exercise_type:
                 query = query.eq('exercise_type', exercise_type)
