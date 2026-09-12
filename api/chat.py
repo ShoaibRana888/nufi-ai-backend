@@ -92,33 +92,6 @@ async def get_cached_context(
         # Fallback to generating fresh
         return await get_user_chat_context(user_id)
 
-@router.post("/context/update/{user_id}")
-async def update_context_activity(
-    user_id: str, 
-    activity_type: str,
-    data: dict
-):
-    """Update context when an activity is logged"""
-    try:
-        context_manager = get_context_manager()
-        result = await context_manager.update_context_activity(
-            user_id, 
-            activity_type, 
-            data
-        )
-        
-        return {
-            'success': True,
-            'message': f'Context updated for {activity_type}',
-            'version': result['version']
-        }
-        
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
-    
 @router.post("/context/rebuild/{user_id}")
 async def rebuild_context(user_id: str, date: Optional[str] = None):
     """Force rebuild context from source tables"""
@@ -132,38 +105,6 @@ async def rebuild_context(user_id: str, date: Optional[str] = None):
             'success': True,
             'message': 'Context rebuilt successfully',
             **result
-        }
-        
-    except Exception as e:
-        return {
-            'success': False,
-            'error': str(e)
-        }
-    
-@router.post("/context/fix-today/{user_id}")
-async def fix_today_context(user_id: str):
-    """Delete and rebuild today's context"""
-    try:
-        from datetime import datetime
-        
-        supabase_service = get_supabase_service()
-        today = datetime.now().date()
-        
-        # Delete today's corrupted context
-        supabase_service.client.table('chat_contexts')\
-            .delete()\
-            .eq('user_id', user_id)\
-            .eq('date', str(today))\
-            .execute()
-        
-        # Force fresh generation
-        context_manager = get_context_manager()
-        result = await context_manager.generate_fresh_context(user_id, today)
-        
-        return {
-            'success': True,
-            'message': 'Context fixed and rebuilt',
-            'context': result['context']
         }
         
     except Exception as e:
