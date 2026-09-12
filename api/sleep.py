@@ -79,27 +79,27 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depe
         }
 
         if existing_entry:
-            updated_entry = await supabase_service.update_sleep_entry(
+            stored_entry = await supabase_service.update_sleep_entry(
                 existing_entry['id'],
                 sleep_entry_data
             )
-            result = {"success": True, "id": existing_entry['id'], "entry": updated_entry}
         else:
             sleep_entry_data['id'] = str(uuid.uuid4())
             sleep_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
-            created_entry = await supabase_service.create_sleep_entry(sleep_entry_data)
-            result = {"success": True, "id": created_entry['id'], "entry": created_entry}
+            stored_entry = await supabase_service.create_sleep_entry(sleep_entry_data)
 
-        # Update chat context
+        # Refresh with the row the store returned, not the write payload: only
+        # the stored row carries shared_with_chat, and the context manager
+        # skips a hidden one.
         context_manager = get_context_manager()
         await context_manager.update_context_activity(
             sleep_data.user_id,
             'sleep',
-            sleep_entry_data,
+            stored_entry,
             entry_date
         )
 
-        return result
+        return {"success": True, "id": stored_entry['id'], "entry": stored_entry}
 
     except Exception as e:
         print(f"❌ Error creating sleep entry: {e}")

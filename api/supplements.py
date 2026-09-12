@@ -111,27 +111,27 @@ async def log_supplement_intake(log_data: SupplementLogCreate, tz_offset: int = 
         }
 
         if existing_log:
-            updated_log = await supabase_service.update_supplement_log(
+            stored_log = await supabase_service.update_supplement_log(
                 existing_log['id'],
                 log_entry_data
             )
-            result = {"success": True, "id": existing_log['id'], "log": updated_log}
         else:
             log_entry_data['id'] = str(uuid.uuid4())
             log_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
-            created_log = await supabase_service.create_supplement_log(log_entry_data)
-            result = {"success": True, "id": created_log['id'], "log": created_log}
+            stored_log = await supabase_service.create_supplement_log(log_entry_data)
 
-        # Update chat context
+        # Refresh with the row the store returned, not the write payload: only
+        # the stored row carries shared_with_chat, and the context manager
+        # skips a hidden one.
         context_manager = get_context_manager()
         await context_manager.update_context_activity(
             log_data.user_id,
             'supplement',
-            log_entry_data,
+            stored_log,
             entry_date
         )
 
-        return result
+        return {"success": True, "id": stored_log['id'], "log": stored_log}
 
     except Exception as e:
         print(f"❌ Error logging supplement intake: {e}")
