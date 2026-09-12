@@ -123,9 +123,30 @@ class ChatContextManager:
         data: Dict[str, Any],
         target_date: date = None
     ) -> Dict[str, Any]:
-        """Update context when user logs an activity"""
+        """Merge one logged activity into the day's cached context.
+
+        `data` is the row as the store returned it after the write -- not the
+        write payload. The row is the only thing that knows whether it is
+        hidden from the coach: `shared_with_chat` is set by the user after the
+        fact (PATCH /sharing/{user_id}) or at insert time by the
+        `trg_share_default` trigger, which applies `users.chat_sharing_defaults`
+        to every new tracker row. A write payload never carries the flag, and
+        the pre-write row does not exist on the create path.
+
+        A hidden row is skipped here rather than at each endpoint. The full
+        rebuild on the read path filters through the shared-only day read;
+        this shortcut has to make the same call, or the next log against a
+        hidden row writes its value straight back into `chat_contexts` and
+        reverses the rebuild the sharing toggle performed.
+
+        Only an explicit False hides. Delete paths pass a reset (`{'steps': 0}`)
+        with no flag, and a reset is the shared view's value regardless.
+        """
         if target_date is None:
             target_date = datetime.now().date()
+
+        if data.get('shared_with_chat') is False:
+            return {'success': True, 'skipped': 'hidden_from_chat'}
         
         try:
             # Get current context

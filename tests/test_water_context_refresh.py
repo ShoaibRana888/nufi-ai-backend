@@ -9,6 +9,10 @@ logged.
 
 api/steps.py has the same if/else and assigns `result`; water was the only
 tracker that returned early.
+
+Whether a refresh is *merged* is a separate question -- a row the user hid
+from the coach must not be -- and that decision lives in
+`update_context_activity`, covered by test_context_refresh_respects_sharing.py.
 """
 from datetime import date
 
@@ -107,43 +111,3 @@ def test_the_update_response_still_carries_the_entry(client, wiring):
     assert body['success'] is True
     assert body['id'] == 'wa1'
     assert body['entry']['glasses_consumed'] == 3
-
-
-# --- but a row the user hid from the coach stays hidden --------------------
-
-
-def test_a_hidden_row_is_not_pushed_back_into_the_context(client, wiring):
-    """PATCH /sharing/{user_id} must not be undone by the next glass.
-
-    update_context_activity merges its payload in blind -- it never consults
-    shared_with_chat -- so refreshing a hidden row would write the value back
-    into chat_contexts and reverse the rebuild the sharing toggle performed.
-    """
-    store, context = wiring(existing={'id': 'wa1', 'glasses_consumed': 1,
-                                      'shared_with_chat': False})
-
-    response = post(client, 2)
-
-    assert response.status_code == 200
-    assert len(store.updated) == 1, "the row itself must still be written"
-    assert context.refreshes == [], (
-        "a hidden water row must not be merged back into the cached context"
-    )
-
-
-def test_a_shared_row_still_refreshes(client, wiring):
-    store, context = wiring(existing={'id': 'wa1', 'glasses_consumed': 1,
-                                      'shared_with_chat': True})
-
-    post(client, 2)
-
-    assert len(context.refreshes) == 1
-
-
-def test_a_row_with_no_flag_is_treated_as_shared(client, wiring):
-    """Only an explicit False hides a row; a missing column is not a no."""
-    store, context = wiring(existing={'id': 'wa1', 'glasses_consumed': 1})
-
-    post(client, 2)
-
-    assert len(context.refreshes) == 1
