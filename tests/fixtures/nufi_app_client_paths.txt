@@ -26,7 +26,6 @@
 # when the client's API surface changes.
 DELETE /chat/history/X
 DELETE /chat/messages/X
-DELETE /exercise/X
 DELETE /exercise/log/X
 DELETE /meals/X
 DELETE /meals/presets/X
@@ -80,9 +79,7 @@ POST /auth/login
 POST /chat
 POST /chat/context/daily-reset/X
 POST /chat/context/rebuild/X
-POST /chat/context/update/X
 POST /exercise/log
-POST /login
 POST /meals/analyze
 POST /meals/presets/X/use
 POST /meals/presets/create
@@ -98,7 +95,6 @@ POST /user/X/set-starting-weight
 POST /water
 POST /weekly/rebuild/X
 POST /weight
-PUT /exercise/X
 PUT /meals/X
 PUT /period/X/end
 PUT /sharing/X/defaults

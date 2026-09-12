@@ -17,7 +17,8 @@ the client adds later; refresh it when the client's API surface changes. What
 it does catch is this direction -- the backend not serving what the client
 already calls -- which is the direction that fails silently.
 
-Known exceptions are listed in UNSERVED below, each with a reason.
+Known exceptions would be listed in UNSERVED below, each with a reason; there
+are none at the moment.
 """
 import pathlib
 
@@ -30,21 +31,12 @@ BASE = '/api/health'
 FIXTURE = pathlib.Path(__file__).parent / 'fixtures' / 'nufi_app_client_paths.txt'
 
 # Client call sites with no route here, deliberately not "fixed" by adding one.
-# Each is dead on the client side: the method exists but nothing calls it.
-# Listed rather than deleted from the fixture so that regenerating it does not
-# silently resurrect them as failures.
-UNSERVED = {
-    # ExerciseApi.deleteExercise -- zero callers. The live delete is
-    # deleteExerciseLog, which calls DELETE /exercise/log/{id} and is served.
-    'DELETE /exercise/X',
-    # ExerciseApi.updateExercise -- zero callers, and there is no exercise
-    # update endpoint at all (ADR-0003: exercise and weight have no update).
-    'PUT /exercise/X',
-    # AuthApi.emailExists -- zero callers. The live login is AuthApi.login at
-    # POST /auth/login, which is served; this one posts a dummy password to
-    # /login and reads a 401 as "the email exists".
-    'POST /login',
-}
+# Empty since 2026-09-12: the three that were here (ExerciseApi.deleteExercise,
+# ExerciseApi.updateExercise, AuthApi.emailExists -- each with zero callers)
+# were deleted from the client rather than carried as exceptions. The set and
+# its test stay so the next dead call site has somewhere to be recorded with
+# a reason, instead of being dropped from the fixture and forgotten.
+UNSERVED = set()
 
 
 def client_calls():

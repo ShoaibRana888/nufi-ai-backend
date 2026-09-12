@@ -214,9 +214,18 @@ designed interface, not an accident.
   `ApiClient` calls and fails if one reaches no route here. It catches the direction that
   fails silently — the backend not serving what the client already calls — and cannot see
   paths the client adds after the snapshot, so **refresh the fixture when the client's API
-  surface changes**. Three client calls reach nothing today; all three are dead client
-  methods with zero callers, listed as documented exceptions with a test that they stay
-  unserved.
+  surface changes**. Every client call reaches a route as of 2026-09-12: the three dead
+  client methods once parked as documented exceptions (`deleteExercise`,
+  `updateExercise`, `emailExists`) were deleted from the client, and `UNSERVED` is empty.
+  - **`POST /chat/context/update/{user_id}` is gone, and it was not dead.** It was
+    written down as a dead client method after a grep that missed the in-file wrapper
+    (`ChatApi.syncContext`), which nine tracker Apis called after every write. Each of
+    those writes was already refreshed server-side by the endpoint that stored the row,
+    so the client echo was redundant — and harmful: this endpoint took no date (server
+    day) and no stored row (the client's own `shared_with_chat`), reopening both holes
+    ADR-0005 and ADR-0006 closed. Deleted on both sides. **Grep for the wrapper, not
+    just the name**: a method with one caller in its own file is not dead.
+  - `POST /chat/context/fix-today/{user_id}` — no client caller, server-day, deleted.
 - **A response body is not a log line.** 111 handlers in `api/` put `str(e)` into a
   response — 96 as `HTTPException(500, detail=str(e))`, 13 as `{'error': str(e)}`, 2 in
   f-strings — and no route has auth, so a PostgREST failure ships its SQL message,
