@@ -79,10 +79,16 @@ false` and zero users have a default set. The mechanism is live on both sides
   five upsert/create endpoints change what they pass and nothing about what they
   return; the response bodies are pinned.
 - `POST /chat/context/update/{user_id}` reads `result.get('version')` now, since a
-  skipped refresh has no version. That endpoint's only client caller,
-  `ChatApi.updateChatContext`, has **zero callers in `nufi_app`** — a fourth dead
-  client method alongside the three already parked in
-  `tests/test_client_contract.py`. Deletion candidate, not deleted here.
+  skipped refresh has no version. *Corrected the same day:* this ADR first recorded
+  that endpoint's client method, `ChatApi.updateChatContext`, as having zero callers.
+  The grep missed the in-file wrapper `syncContext`, which nine tracker Apis call after
+  every write. So the endpoint was **live**, and it bypasses this very guard: the client
+  sends its own payload, with its own copy of `shared_with_chat` (or none), not the
+  stored row. Both sides are deleted in the follow-up
+  (`chore/delete-dead-context-endpoints` here, `chore/delete-dead-api-methods` in
+  `nufi_app`); every write it echoed is already refreshed by the endpoint that stored
+  the row. Until that merges, the guard here is complete for the backend's own
+  refreshes and incomplete for the client's echo.
 - **The trigger is now recorded** in `CONTEXT.md`. It is the kind of fact that hides
   well: the backend stores the defaults, reads them back for the settings screen,
   and never applies them, so a reader of this repo concludes they are inert. They are

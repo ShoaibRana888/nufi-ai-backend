@@ -243,10 +243,11 @@ designed interface, not an accident.
     leaked too, and water's endpoint-level guard — which read the pre-write row —
     missed its own create path. Pinned through both layers by
     `tests/test_context_refresh_respects_sharing.py`.
-  - **`POST /chat/context/update/{user_id}` has no live caller.** Its one client
-    method, `ChatApi.updateChatContext`, has zero callers in `nufi_app`. A fourth
-    dead client method alongside the three parked in `tests/test_client_contract.py`;
-    not deleted yet.
+  - **`POST /chat/context/update/{user_id}` is live, and bypasses the guard.** First
+    written here as "no live caller" after a grep that missed the in-file wrapper
+    `ChatApi.syncContext`, called by nine tracker Apis after every write. It sends the
+    client's payload, not the stored row. Deleted on both sides in the follow-up
+    branches; see the contract-test bullet below once that lands.
   - **The coach's day is still the server's day.**
     `chat_service.generate_chat_response` rebuilds with `datetime.now().date()` and
     `get_enhanced_context` calls `get_or_create_context` with no date, while the
