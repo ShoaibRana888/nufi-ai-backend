@@ -559,7 +559,9 @@ Exercise: {exercise_minutes} minutes ({exercises_done} exercises completed)
             # week containing the user's today, for the same reason.
             if self.weekly_manager:
                 try:
-                    current_week = await self.weekly_manager.get_or_create_weekly_context(user_id, today)
+                    current_week = await self.weekly_manager.get_or_create_weekly_context(
+                        user_id, today, today=today
+                    )
                     previous_weeks = await self.weekly_manager.get_recent_weeks_context(
                         user_id, weeks_count=include_weeks, end_date=today
                     )
