@@ -133,6 +133,11 @@ designed interface, not an accident.
   docs/adr/0003). Composes `get_owner_activities_for_date`; the shaping is pure.
   - **Three states per section**, matching the client's `Section.ok` / `.missing` /
     `.error`: present ⇒ ok, absent ⇒ missing, absent and named in `_read_errors` ⇒ error.
+  - **`_read_errors` values are the token `"read_failed"`**, not the store's message
+    ([ADR-0007](docs/adr/0007-read-errors-carries-a-token-not-a-message.md)). The
+    store's map keeps the raw exception text for the server log; the endpoint's
+    shaping swaps it for the token on the way out. Presence carries the
+    missing-vs-error distinction; the client never read the value.
   - **Roll-ups are always present, single rows are omitted when empty.** `meals`,
     `exercise` and `supplements` carry zeros for a day with nothing logged — that is an
     answer, not an absence. `water`, `steps`, `sleep` and `weight` are omitted when there
@@ -188,6 +193,14 @@ designed interface, not an accident.
   surface changes**. Three client calls reach nothing today; all three are dead client
   methods with zero callers, listed as documented exceptions with a test that they stay
   unserved.
+- **A response body is not a log line.** 111 handlers in `api/` put `str(e)` into a
+  response — 96 as `HTTPException(500, detail=str(e))`, 13 as `{'error': str(e)}`, 2 in
+  f-strings — and no route has auth, so a PostgREST failure ships its SQL message,
+  error code, hint and table/column names to whoever asked. `_read_errors` was the one
+  such door on a 200 path and a contract field, so it was closed first (ADR-0007). The
+  other 111 are one change, not 111 — a generic `detail` with the exception logged, or a
+  5xx-rewriting middleware — and their own inventory: confirm nothing in `nufi_app`
+  parses a 500 `detail` before choosing. Not done.
 - **Leaked read** — a raw `.client.table(...)` call made *outside* the store. The
   context builders have none left: candidate #1 pulled all 17 behind
   `get_shared_activities_for_date`. What remains is two distinct groups, and neither is
