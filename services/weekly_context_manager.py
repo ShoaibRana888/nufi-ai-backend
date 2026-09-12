@@ -771,11 +771,17 @@ class WeeklyContextManager:
     async def get_recent_weeks_context(
         self,
         user_id: str,
-        weeks_count: int = 4
+        weeks_count: int = 4,
+        end_date: Optional[date] = None
     ) -> List[Dict[str, Any]]:
-        """Get context for recent weeks"""
+        """Get context for recent weeks, counting back from `end_date`.
+
+        `end_date` is the user's today when the caller has it (the chat
+        path does); the server date otherwise.
+        """
         try:
-            end_date = datetime.now().date()
+            if end_date is None:
+                end_date = datetime.now().date()
             contexts = []
             
             for week_offset in range(weeks_count):

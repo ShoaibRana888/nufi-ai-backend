@@ -22,10 +22,13 @@ async def get_user_chat_context(
     row `/context/daily-reset` writes.
     """
     try:
-        context_manager = get_context_manager()
-
         target_date = (datetime.strptime(date, '%Y-%m-%d').date() if date
                        else get_user_today(tz_offset))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    try:
+        context_manager = get_context_manager()
         result = await context_manager.get_or_create_context(user_id, target_date)
         
         # Format to match old structure for compatibility
@@ -36,9 +39,9 @@ async def get_user_chat_context(
         
     except Exception as e:
         print(f"Error getting context: {e}")
-        # Fallback - generate fresh if cache fails
+        # Fallback - generate fresh if cache fails, for the same day.
         context_manager = get_context_manager()
-        result = await context_manager.generate_fresh_context(user_id, datetime.now().date())
+        result = await context_manager.generate_fresh_context(user_id, target_date)
         return {
             'success': True,
             **result['context']
@@ -89,8 +92,10 @@ async def get_cached_context(
         
     except Exception as e:
         print(f"Error getting cached context: {e}")
-        # Fallback to generating fresh
-        return await get_user_chat_context(user_id)
+        # Fallback to generating fresh. Called directly, not through FastAPI,
+        # so the dependency has to be handed over -- without it `tz_offset`
+        # is the bare `Depends` marker.
+        return await get_user_chat_context(user_id, date, tz_offset)
 
 @router.post("/context/rebuild/{user_id}")
 async def rebuild_context(user_id: str, date: Optional[str] = None):
@@ -226,7 +231,10 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
         print(f"💬 Chat request from user: {user_id}, message: {message[:50]}...")
         print(f"⏱️ Time before generate_chat_response: {time.time() - start_time:.2f}s")
 
-        response = await chat_service.generate_chat_response(user_id, message)
+        # The coach's "today" is the user's day, resolved from the request's
+        # offset like every tracker write. The server clock is UTC.
+        today = get_user_today(tz_offset)
+        response = await chat_service.generate_chat_response(user_id, message, today)
 
         print(f"⏱️ Total time: {time.time() - start_time:.2f}s")
 

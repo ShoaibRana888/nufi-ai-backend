@@ -29,11 +29,26 @@ designed interface, not an accident.
   time-of-day whenever the client omits `exercise_date`, because it falls back to
   `get_user_now()`, which returns a datetime. **Always filter a day with a half-open
   range** (`gte(date)` / `lt(next_day)`), which is correct for all three. The store's
-  by-date reads already do; reaching past them is how this bites.
+  by-date reads already do, and since 2026-09-12 so does the one surviving range read
+  on a timestamptz, `get_exercise_logs` — the last known `.lte` instance; three callers
+  ended their range on today and lost that day's time-of-day rows
+  (`tests/test_exercise_logs_date_range.py`). Reaching past the store is how this
+  bites next.
 - **Shared with chat** — a per-entry privacy flag (`shared_with_chat`). The store exposes
   it as a `shared_only: bool` parameter on the by-date reads
   (`get_meals_by_date(..., shared_only=True)`, `get_water_by_date`, `get_steps_by_date`, …).
   Entries not shared are excluded from chat context.
+  - **A row can be born hidden.** The flag is set two ways: after the fact by
+    `PATCH /sharing/{user_id}`, and **at insert time by a database trigger**.
+    `users.chat_sharing_defaults` (written by `PUT /sharing/{user_id}/defaults`) is
+    applied by `trg_share_default`, a `BEFORE INSERT` trigger on all seven tracker
+    tables. Nothing in this repo applies the defaults, so reading the code alone says
+    they are inert; they are not. Verified against the live schema in
+    [ADR-0005](docs/adr/0005-context-refresh-reads-sharing-from-the-stored-row.md).
+  - **So the only thing that knows a row's flag is the stored row** — what
+    `create_*` / `update_*` return. Not the write payload (built before the row
+    exists, and the trigger overrides it anyway) and not the pre-write row (absent on
+    the create path). `update_context_activity` takes the stored row for this reason.
 - **A day read** — one user's entries across all trackers on one date. There are
   **two**, both public methods on `supabase_service`, sharing one private composition
   (`_activities_for_date`). Each returns the eight tracker sections plus `_read_errors`
@@ -133,6 +148,11 @@ designed interface, not an accident.
   docs/adr/0003). Composes `get_owner_activities_for_date`; the shaping is pure.
   - **Three states per section**, matching the client's `Section.ok` / `.missing` /
     `.error`: present ⇒ ok, absent ⇒ missing, absent and named in `_read_errors` ⇒ error.
+  - **`_read_errors` values are the token `"read_failed"`**, not the store's message
+    ([ADR-0007](docs/adr/0007-read-errors-carries-a-token-not-a-message.md)). The
+    store's map keeps the raw exception text for the server log; the endpoint's
+    shaping swaps it for the token on the way out. Presence carries the
+    missing-vs-error distinction; the client never read the value.
   - **Roll-ups are always present, single rows are omitted when empty.** `meals`,
     `exercise` and `supplements` carry zeros for a day with nothing logged — that is an
     answer, not an absence. `water`, `steps`, `sleep` and `weight` are omitted when there
@@ -153,7 +173,10 @@ designed interface, not an accident.
   them will not respect `shared_with_chat`, and its name will not say so. That is how the
   water/steps/sleep pairs arose — and in all three the unsafe variant was the *more* used
   one. `tests/test_store_by_date_surface.py` now pins the surface.
-- **A read reports failure; it does not return it as data.** The by-date reads used to
+- **A read reports failure; it does not return it as data.** *(Still open on the range
+  reads: `get_exercise_logs` swallows to `[]`, so `/exercise/stats` reports an
+  unreachable database as a week with no workouts. ADR-0004 fixed the by-date leaves
+  only.)* The by-date reads used to
   wrap every query in `try/except` and return the value that means "nothing logged" — a
   broken tracker and a quiet day were the same answer. That silently defeated the layer
   built on top of it (`_read_errors`), wrote duplicate rows on the upsert paths that
@@ -170,6 +193,12 @@ designed interface, not an accident.
   far enough east of the Oregon region, a row dated to the server's today compared
   equal to "today" and the reset never fired. Making dormant code reachable is a
   behaviour change: read it before shipping the fix that switches it on.
+- **The server clock is UTC.** Confirmed from `chat_contexts` rows, not assumed:
+  `context_metadata.created_at` (server `datetime.now()`) and the DB-side
+  `created_at` (`now()`) agree to the tenth of a second. So `datetime.now().date()`
+  is the UTC date, and for a UTC+5 user it is yesterday until 05:00 local. Every
+  "which day" decision takes the user's date as an argument; the places that still
+  read the server clock are listed in ADR-0006 with the reason each is allowed to.
 - **Two handlers can claim one route, and the loser is silent.** Starlette matches in
   registration order; the first wins with no warning. Twenty-odd routers share a handful
   of prefixes here, and it has already happened once (`/daily-summary`).
@@ -197,6 +226,14 @@ designed interface, not an accident.
     ADR-0005 and ADR-0006 closed. Deleted on both sides. **Grep for the wrapper, not
     just the name**: a method with one caller in its own file is not dead.
   - `POST /chat/context/fix-today/{user_id}` — no client caller, server-day, deleted.
+- **A response body is not a log line.** 111 handlers in `api/` put `str(e)` into a
+  response — 96 as `HTTPException(500, detail=str(e))`, 13 as `{'error': str(e)}`, 2 in
+  f-strings — and no route has auth, so a PostgREST failure ships its SQL message,
+  error code, hint and table/column names to whoever asked. `_read_errors` was the one
+  such door on a 200 path and a contract field, so it was closed first (ADR-0007). The
+  other 111 are one change, not 111 — a generic `detail` with the exception logged, or a
+  5xx-rewriting middleware — and their own inventory: confirm nothing in `nufi_app`
+  parses a 500 `detail` before choosing. Not done.
 - **Leaked read** — a raw `.client.table(...)` call made *outside* the store. The
   context builders have none left: candidate #1 pulled all 17 behind
   `get_shared_activities_for_date`. What remains is two distinct groups, and neither is
@@ -230,20 +267,34 @@ designed interface, not an accident.
     skipping the refresh below the `if/else`, so only the day's *first* glass
     refreshed the context. Fixed; `tests/test_water_context_refresh.py` covers
     both branches. A call site is not a call.
-  - **The incremental refresh does not respect `shared_with_chat`.**
-    `update_context_activity` merges its payload into `chat_contexts` blind, so
-    logging against a row the user hid reverses the rebuild that
-    `PATCH /sharing/{user_id}` performs. `api/water.py` now skips the shortcut for a
-    hidden row; **meals, steps, sleep, exercise, weight and supplements still do
-    not** — same hole, six more call sites, its own fix. The full rebuild on the
-    read path filters correctly; only this shortcut does not.
-  - **The coach's day is still the server's day.**
-    `chat_service.generate_chat_response` rebuilds with `datetime.now().date()` and
-    `get_enhanced_context` calls `get_or_create_context` with no date, while the
-    context endpoints and the daily reset now use the caller's offset. Inert today —
-    the coach rebuilds from source tables every reply, so it never reads the reset's
-    row — but the two halves disagree about which row is "today" for an offset user.
-    Propagating the offset through `generate_chat_response` is its own change.
+  - **The incremental refresh respects `shared_with_chat`** — fixed in
+    [ADR-0005](docs/adr/0005-context-refresh-reads-sharing-from-the-stored-row.md).
+    `update_context_activity` used to merge its payload into `chat_contexts` blind,
+    so logging against a hidden row reversed the rebuild `PATCH /sharing/{user_id}`
+    performs. The guard is in the shared method, once, and reads the flag off the
+    **stored row** every write endpoint now passes. The premise "upsert against a
+    row the user hid" was too narrow: the insert trigger above means a row can be
+    hidden from birth, so the always-create trackers (weight, exercise, meals)
+    leaked too, and water's endpoint-level guard — which read the pre-write row —
+    missed its own create path. Pinned through both layers by
+    `tests/test_context_refresh_respects_sharing.py`.
+  - **`POST /chat/context/update/{user_id}` is live, and bypasses the guard.** First
+    written here as "no live caller" after a grep that missed the in-file wrapper
+    `ChatApi.syncContext`, called by nine tracker Apis after every write. It sends the
+    client's payload, not the stored row. Deleted on both sides in the follow-up
+    branches; see the contract-test bullet below once that lands.
+  - **The coach's day is the user's day** — fixed in
+    [ADR-0006](docs/adr/0006-the-coach-reads-the-users-day.md). This bullet used to
+    say the server-day rebuild was *inert* because the coach rebuilds from source
+    tables every reply. That was the wrong conclusion: the source tables are keyed by
+    the **user's** day, so the rebuild read a different day's rows than the ones
+    being written, for `|offset|` hours of every day — and 39% of all chat messages
+    ever sent fell inside that window. `generate_chat_response` now takes `today`
+    (a `date`, resolved by the endpoint from the offset) and hands the one value to
+    the rebuild, the cached read and the weekly window. The date is **required** on
+    every method that picks a day, including `get_or_create_context` and
+    `ensure_daily_context`, whose server-date defaults are gone. *Bounded* is not
+    *inert*: check what the rebuild actually reads.
   - **The re-scoped question**, which is much smaller than a use-case: *should the
     cached-context endpoint rebuild, or declare its staleness?* Answer that first. If it
     rebuilds, the 14 calls are dead and the question becomes a deletion. If it does not,
@@ -272,11 +323,14 @@ designed interface, not an accident.
   side — then remove it rather than carrying it into a new module, which only launders
   dead code into looking live. "Registered" is not "reachable": prove it against the
   route table, not the source.
-- **Inventory the premise before building the candidate.** Four for four now, the
+- **Inventory the premise before building the candidate.** Five for five now, the
   written premise has been wrong in a way that changed the work: #1 was mis-sized by 4x,
   #3 was half dead code, #2's uniform CRUD family did not exist, and #4's justification
   is void. For the snapshot the premise held but the *precedent* did not — `_read_errors`
-  was structurally dead. Check what is live before extending it.
+  was structurally dead. For the sharing guard the premise named the wrong source of
+  truth — the pre-write row — and the precedent (water's guard) had the same gap.
+  Check what is live before extending it, **and check the database, not just the
+  repo**: the insert trigger that changed ADR-0005 is invisible from the code.
 - Architecture vocabulary (module, interface, seam, adapter, depth, leverage, locality)
   lives in the design skill, not here. This file names the *domain*; that file names the
   *shapes*.

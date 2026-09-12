@@ -32,16 +32,6 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
             entry_date
         )
 
-        # A row the user has hidden from the coach must stay hidden. The
-        # incremental context update below merges the payload in blind -- it
-        # never consults shared_with_chat -- so refreshing a hidden row would
-        # write the value straight back into chat_contexts and undo the
-        # rebuild that PATCH /sharing/{user_id} performs. The full rebuild on
-        # the read path filters correctly; only this shortcut does not.
-        hidden_from_chat = bool(existing_entry) and (
-            existing_entry.get('shared_with_chat') is False
-        )
-
         water_entry_data = {
             'user_id': water_data.user_id,
             'date': str(entry_date),  # Convert date to string for Supabase
@@ -56,28 +46,27 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
             # Update existing entry. Assign rather than return: the chat-context
             # refresh below the if/else has to run on this path too, and it is
             # the common one -- every glass after the day's first lands here.
-            updated_entry = await supabase_service.update_water_entry(
+            stored_entry = await supabase_service.update_water_entry(
                 existing_entry['id'],
                 water_entry_data
             )
-            result = {"success": True, "id": existing_entry['id'], "entry": updated_entry}
         else:
             water_entry_data['id'] = str(uuid.uuid4())
             water_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
-            created_entry = await supabase_service.create_water_entry(water_entry_data)
-            result = {"success": True, "id": created_entry['id'], "entry": created_entry}
+            stored_entry = await supabase_service.create_water_entry(water_entry_data)
 
-        # Update chat context
-        if not hidden_from_chat:
-            context_manager = get_context_manager()
-            await context_manager.update_context_activity(
-                water_data.user_id,
-                'water',
-                water_entry_data,
-                entry_date
-            )
+        # Refresh with the row the store returned, not the write payload: only
+        # the stored row carries shared_with_chat, and the context manager
+        # skips a hidden one.
+        context_manager = get_context_manager()
+        await context_manager.update_context_activity(
+            water_data.user_id,
+            'water',
+            stored_entry,
+            entry_date
+        )
 
-        return result
+        return {"success": True, "id": stored_entry['id'], "entry": stored_entry}
 
     except Exception as e:
         print(f"❌ Error saving water entry: {e}")

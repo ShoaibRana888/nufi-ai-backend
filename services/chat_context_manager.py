@@ -10,13 +10,14 @@ class ChatContextManager:
     def __init__(self):
         self.supabase_service = get_supabase_service()
     
-    async def get_or_create_context(self, user_id: str, target_date: date = None) -> Dict[str, Any]:
-        """Get existing context or create a new one for the specified date"""
-        if target_date is None:
-            # For today, use the ensure_daily_context method
-            return await self.ensure_daily_context(user_id)
-        
-        # For specific dates, use the existing logic
+    async def get_or_create_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
+        """Get existing context or create a new one for the specified date.
+
+        The date is required. It used to default to the server clock via
+        `ensure_daily_context`, and the coach read its context through that
+        default -- a different day from the one the trackers write for any
+        user not on UTC. Callers know whose day they mean; say so.
+        """
         try:
             # Try to get existing context
             response = self.supabase_service.client.table('chat_contexts')\
@@ -122,9 +123,30 @@ class ChatContextManager:
         data: Dict[str, Any],
         target_date: date = None
     ) -> Dict[str, Any]:
-        """Update context when user logs an activity"""
+        """Merge one logged activity into the day's cached context.
+
+        `data` is the row as the store returned it after the write -- not the
+        write payload. The row is the only thing that knows whether it is
+        hidden from the coach: `shared_with_chat` is set by the user after the
+        fact (PATCH /sharing/{user_id}) or at insert time by the
+        `trg_share_default` trigger, which applies `users.chat_sharing_defaults`
+        to every new tracker row. A write payload never carries the flag, and
+        the pre-write row does not exist on the create path.
+
+        A hidden row is skipped here rather than at each endpoint. The full
+        rebuild on the read path filters through the shared-only day read;
+        this shortcut has to make the same call, or the next log against a
+        hidden row writes its value straight back into `chat_contexts` and
+        reverses the rebuild the sharing toggle performed.
+
+        Only an explicit False hides. Delete paths pass a reset (`{'steps': 0}`)
+        with no flag, and a reset is the shared view's value regardless.
+        """
         if target_date is None:
             target_date = datetime.now().date()
+
+        if data.get('shared_with_chat') is False:
+            return {'success': True, 'skipped': 'hidden_from_chat'}
         
         try:
             # Get current context
@@ -706,20 +728,15 @@ class ChatContextManager:
         except Exception as e:
             print(f"⚠️ Error saving context: {e}")
 
-    async def ensure_daily_context(
-        self, user_id: str, today: Optional[date] = None
-    ) -> Dict[str, Any]:
+    async def ensure_daily_context(self, user_id: str, today: date) -> Dict[str, Any]:
         """Ensure a context exists for today.
 
-        `today` is the *user's* date. Callers that have a timezone offset
-        should pass it; "today" on the server clock is a different day for
-        anyone far enough east or west, and this method decides which row
-        counts as current. Defaults to the server date so the internal
-        caller (`get_or_create_context` with no date) is unchanged.
+        `today` is the *user's* date, and it is required. "Today" on the
+        server clock is a different day for anyone far enough east or west,
+        and this method decides which row counts as current. The server-date
+        default existed for `get_or_create_context`'s dateless form, which
+        is gone.
         """
-        if today is None:
-            today = datetime.now().date()
-        
         try:
             response = self.supabase_service.client.table('chat_contexts')\
                 .select('*')\
