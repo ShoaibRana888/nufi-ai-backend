@@ -48,7 +48,9 @@ designed interface, not an accident.
   - **So the only thing that knows a row's flag is the stored row** — what
     `create_*` / `update_*` return. Not the write payload (built before the row
     exists, and the trigger overrides it anyway) and not the pre-write row (absent on
-    the create path). `update_context_activity` takes the stored row for this reason.
+    the create path). The incremental refresh that once needed this is gone
+    (ADR-0008); anything that writes to `chat_contexts` from a row must still read
+    the flag from the stored row, for this reason.
 - **A day read** — one user's entries across all trackers on one date. There are
   **two**, both public methods on `supabase_service`, sharing one private composition
   (`_activities_for_date`). Each returns the eight tracker sections plus `_read_errors`
@@ -243,63 +245,35 @@ designed interface, not an accident.
     they get a home it is a context-store module, not the tracker store.
   - **Endpoint reads** — `api/` modules reaching tables directly (notifications, FCM,
     debug, meal suggestions, meal presets). Separate concerns, separate decisions.
-- **`log_daily_metric` use-case** — candidate #4, **re-grilled 2026-09-07 and not
-  built as scoped.** The proposal was that endpoints repeat "upsert-by-date, then
-  remember to refresh chat context" and that a use-case should own the flow atomically,
-  because forgetting the refresh is a real bug class. Checked against the code:
-  - **The refresh calls number 14, not ~28**, and they are one method:
-    `context_manager.update_context_activity`, across meals (4), water, steps, sleep,
-    exercise, weight (2 each) and supplements (1). The earlier figure counted the
-    context manager's whole surface.
-  - **The bug class is already defended.** `chat_service.generate_chat_response` calls
-    `rebuild_context` unconditionally before every reply, so the coach never reads a
-    stale context regardless of what the write endpoints did.
-  - **`api/periods.py` has 4 write endpoints and zero refresh calls, and is fine** —
-    period data reaches the coach's guardrail through `compute_period_status`, which
-    takes a `period_row` read from the table, not from cached context. The one endpoint
-    family that "forgets" is the one that never needed to remember.
-  - **So the 14 calls buy exactly one thing:** freshness for
-    `GET /api/health/chat/context/{user_id}`, which serves stored `context_data`
-    verbatim — `get_or_create_context` does no freshness check and the `version` column
-    is written but never read for any decision.
-  - *Amended after reviewing that work:* one of the 14 could not fire on its
-    common path. `api/water.py`'s upsert returned early on the **update** branch,
-    skipping the refresh below the `if/else`, so only the day's *first* glass
-    refreshed the context. Fixed; `tests/test_water_context_refresh.py` covers
-    both branches. A call site is not a call.
-  - **The incremental refresh respects `shared_with_chat`** — fixed in
-    [ADR-0005](docs/adr/0005-context-refresh-reads-sharing-from-the-stored-row.md).
-    `update_context_activity` used to merge its payload into `chat_contexts` blind,
-    so logging against a hidden row reversed the rebuild `PATCH /sharing/{user_id}`
-    performs. The guard is in the shared method, once, and reads the flag off the
-    **stored row** every write endpoint now passes. The premise "upsert against a
-    row the user hid" was too narrow: the insert trigger above means a row can be
-    hidden from birth, so the always-create trackers (weight, exercise, meals)
-    leaked too, and water's endpoint-level guard — which read the pre-write row —
-    missed its own create path. Pinned through both layers by
-    `tests/test_context_refresh_respects_sharing.py`.
-  - **`POST /chat/context/update/{user_id}` is live, and bypasses the guard.** First
-    written here as "no live caller" after a grep that missed the in-file wrapper
-    `ChatApi.syncContext`, called by nine tracker Apis after every write. It sends the
-    client's payload, not the stored row. Deleted on both sides in the follow-up
-    branches; see the contract-test bullet below once that lands.
-  - **The coach's day is the user's day** — fixed in
-    [ADR-0006](docs/adr/0006-the-coach-reads-the-users-day.md). This bullet used to
-    say the server-day rebuild was *inert* because the coach rebuilds from source
-    tables every reply. That was the wrong conclusion: the source tables are keyed by
-    the **user's** day, so the rebuild read a different day's rows than the ones
-    being written, for `|offset|` hours of every day — and 39% of all chat messages
-    ever sent fell inside that window. `generate_chat_response` now takes `today`
-    (a `date`, resolved by the endpoint from the offset) and hands the one value to
-    the rebuild, the cached read and the weekly window. The date is **required** on
-    every method that picks a day, including `get_or_create_context` and
-    `ensure_daily_context`, whose server-date defaults are gone. *Bounded* is not
-    *inert*: check what the rebuild actually reads.
-  - **The re-scoped question**, which is much smaller than a use-case: *should the
-    cached-context endpoint rebuild, or declare its staleness?* Answer that first. If it
-    rebuilds, the 14 calls are dead and the question becomes a deletion. If it does not,
-    they are load-bearing for one endpoint and `log_daily_metric` is still the wrong
-    shape for saying so.
+- **`log_daily_metric` use-case** — candidate #4, **re-grilled 2026-09-07, not built,
+  and closed 2026-09-12** by [ADR-0008](docs/adr/0008-chat-context-rebuilds-on-read.md).
+  The proposal was that endpoints repeat "upsert-by-date, then remember to refresh chat
+  context" and that a use-case should own the flow atomically. Checked against the code
+  in stages, each of which changed the premise:
+  - **The refresh calls numbered 14, not ~28**, all one method
+    (`update_context_activity`), and **the bug class was already defended**:
+    `generate_chat_response` rebuilds before every reply, so the coach never read the
+    cache. `api/periods.py` had zero refresh calls and was fine — period data reaches
+    the guardrail from the table. So the 14 calls bought one thing: freshness for
+    `GET /chat/context/{user_id}`, which served stored `context_data` verbatim.
+  - **One of the 14 could not fire on its common path** (water's update branch returned
+    early — PR #7). A call site is not a call.
+  - **The refresh did not respect `shared_with_chat`** (ADR-0005). The fix moved the
+    guard into the shared method and made every endpoint pass the stored row, because
+    only the stored row knows: the insert trigger above can hide a row from birth, so
+    neither the write payload nor the pre-write row can answer. That finding stands.
+  - **`POST /chat/context/update/{user_id}` was live, not dead**, and bypassed that
+    guard — the grep missed `ChatApi.syncContext`, called after every client write.
+    Deleted on both sides (PR #12, nufi_app #15). Grep for the wrapper, not the name.
+  - **The coach's day was the server's day** (ADR-0006) — not inert, as first recorded:
+    39% of all chats fell in the window where the UTC day and the user's day differ.
+  - **The re-scoped question — rebuild, or declare staleness? — is answered: rebuild.**
+    The cache had exactly one live reader, the chat page's welcome banner, which wants
+    today's numbers and already fired a rebuild in parallel with the read. So the
+    endpoint rebuilds for the requested day, serves the stored row with `stale: true`
+    only if the rebuild fails, and **the incremental refresh is deleted** —
+    `update_context_activity`, `remove_from_context`, 15 call sites, ~375 lines. Every
+    tracker write is two round-trips faster. `api/sharing.py` keeps its rebuild.
   - **Not a prerequisite for anything.** The daily-snapshot contract said to pair this
     endpoint with #4 for the write side and to build it on #2's daily-metric store.
     Neither was needed: #2 was inventoried and deliberately not built (ADR-0003), and the

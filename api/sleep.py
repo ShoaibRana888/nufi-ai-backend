@@ -5,7 +5,6 @@ import uuid
 
 from models.sleep_schemas import SleepEntryCreate, SleepEntryUpdate
 from services.supabase_service import get_supabase_service
-from services.chat_context_manager import get_context_manager
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
@@ -87,17 +86,6 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depe
             sleep_entry_data['id'] = str(uuid.uuid4())
             sleep_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             stored_entry = await supabase_service.create_sleep_entry(sleep_entry_data)
-
-        # Refresh with the row the store returned, not the write payload: only
-        # the stored row carries shared_with_chat, and the context manager
-        # skips a hidden one.
-        context_manager = get_context_manager()
-        await context_manager.update_context_activity(
-            sleep_data.user_id,
-            'sleep',
-            stored_entry,
-            entry_date
-        )
 
         return {"success": True, "id": stored_entry['id'], "entry": stored_entry}
 
@@ -250,7 +238,6 @@ async def delete_sleep_entry(entry_id: str):
         print(f"😴 Deleting sleep entry: {entry_id}")
 
         supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
 
         # Get entry details before deletion
         entry = await supabase_service.get_sleep_entry_by_id(entry_id)
@@ -263,13 +250,6 @@ async def delete_sleep_entry(entry_id: str):
         if success:
             # Update context - remove sleep hours
             entry_date = datetime.fromisoformat(entry['date']).date()
-            await context_manager.update_context_activity(
-                entry['user_id'],
-                'sleep',
-                {'total_hours': None},
-                entry_date
-            )
-
             return {"success": True, "message": "Sleep entry deleted successfully"}
         else:
             return {"success": False, "message": "Failed to delete sleep entry"}

@@ -15,11 +15,20 @@ async def get_user_chat_context(
     date: Optional[str] = None,
     tz_offset: int = Depends(get_timezone_offset),
 ):
-    """Get user context - now using cached system.
+    """The coach's context for one day, rebuilt from the source tables.
 
-    The client always sends `date`, so the fallback is the rare path; it
-    resolves to the user's day rather than the server's so it agrees with the
-    row `/context/daily-reset` writes.
+    This used to serve the stored `chat_contexts` row verbatim, kept warm by an
+    incremental merge in every tracker write endpoint. Its only live reader is
+    the chat page's welcome banner, which wants today's numbers -- and the page
+    fires a rebuild alongside the read anyway, so the cache was a race it
+    sometimes lost. Rebuilding here makes the read authoritative and lets the
+    write endpoints stop paying two round-trips each to keep it warm (ADR-0008).
+
+    The client always sends `date`; the fallback resolves to the user's day so
+    it agrees with the row `/context/daily-reset` writes. If the rebuild fails
+    the stored row is served with `stale: true`, so a caller can tell a fresh
+    answer from a cached one rather than being handed the cache as if it were
+    fresh.
     """
     try:
         target_date = (datetime.strptime(date, '%Y-%m-%d').date() if date
@@ -27,26 +36,20 @@ async def get_user_chat_context(
     except ValueError:
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
 
+    context_manager = get_context_manager()
     try:
-        context_manager = get_context_manager()
+        result = await context_manager.rebuild_context(user_id, target_date)
+        return {'success': True, **result['context']}
+    except Exception as e:
+        print(f"⚠️ Context rebuild failed for {user_id} on {target_date}, serving cached: {e}")
+
+    try:
         result = await context_manager.get_or_create_context(user_id, target_date)
-        
-        # Format to match old structure for compatibility
-        return {
-            'success': True,
-            **result['context']  # Unwrap the context directly
-        }
-        
+        return {'success': True, 'stale': True, **result['context']}
     except Exception as e:
         print(f"Error getting context: {e}")
-        # Fallback - generate fresh if cache fails, for the same day.
-        context_manager = get_context_manager()
-        result = await context_manager.generate_fresh_context(user_id, target_date)
-        return {
-            'success': True,
-            **result['context']
-        }
-    
+        raise HTTPException(status_code=500, detail="Could not build or read chat context")
+
 @router.delete("/context/cleanup")
 async def cleanup_old_contexts(days_to_keep: int = 7):
     """Clean up contexts older than specified days"""

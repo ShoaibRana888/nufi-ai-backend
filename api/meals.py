@@ -11,7 +11,6 @@ from models.meal_schemas import (
 )
 from services.supabase_service import get_supabase_service
 from services.meal_analysis_service import get_meal_analysis_service
-from services.chat_context_manager import get_context_manager
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
@@ -46,7 +45,6 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
         # Get services
         supabase_service = get_supabase_service()
         analysis_service = get_meal_analysis_service()
-        context_manager = get_context_manager()
         
         # Get user context
         user = await supabase_service.get_user_by_id(request.user_id)
@@ -109,14 +107,6 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
         
         print(f"✅ Meal saved in UTC!")
         
-        # Update chat context with the new meal
-        await context_manager.update_context_activity(
-            request.user_id,
-            'meal',
-            saved_meal,
-            user_date
-        )
-        
         # Update daily nutrition
         await update_daily_nutrition(
             supabase_service, 
@@ -159,7 +149,6 @@ async def log_meal(meal_entry: dict):
     """Log a meal entry directly (for manual entries)"""
     try:
         supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
         
         # Add IDs and timestamps
         meal_entry['id'] = str(uuid.uuid4())
@@ -171,13 +160,6 @@ async def log_meal(meal_entry: dict):
         
         # Update chat context
         meal_date = datetime.fromisoformat(meal_entry.get('meal_date', datetime.now().isoformat())).date()
-        await context_manager.update_context_activity(
-            meal_entry['user_id'],
-            'meal',
-            created_entry,
-            meal_date
-        )
-        
         # Update daily nutrition
         await update_daily_nutrition(
             supabase_service,
@@ -241,7 +223,6 @@ async def delete_meal(meal_id: str):
         print(f"🍽️ Deleting meal: {meal_id}")
         
         supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
         
         # Get meal details before deletion
         meal = await supabase_service.get_meal_by_id(meal_id)
@@ -254,13 +235,6 @@ async def delete_meal(meal_id: str):
         if success:
             # Update context - remove this specific meal
             meal_date = datetime.fromisoformat(meal['meal_date']).date()
-            await context_manager.remove_from_context(
-                meal['user_id'],
-                'meal',
-                meal_id,
-                meal_date
-            )
-            
             # Also update daily nutrition totals
             await recalculate_daily_nutrition(
                 supabase_service,
@@ -496,19 +470,6 @@ async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(g
             print(f"✅ Updated preset usage count")
         except Exception as e:
             print(f"⚠️ Failed to update preset usage: {e}")
-
-        # Update context (non-critical)
-        try:
-            context_manager = get_context_manager()
-            await context_manager.update_context_activity(
-                user_id=preset['user_id'],
-                activity_type='meal',
-                data=saved,
-                target_date=user_date
-            )
-            print(f"✅ Updated context")
-        except Exception as e:
-            print(f"⚠️ Failed to update context: {e}")
 
         return {"success": True, "meal": saved}
         

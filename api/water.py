@@ -6,7 +6,6 @@ import uuid
 
 from models.water_schemas import WaterEntryCreate
 from services.supabase_service import get_supabase_service
-from services.chat_context_manager import get_context_manager
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
@@ -43,9 +42,6 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
         }
 
         if existing_entry:
-            # Update existing entry. Assign rather than return: the chat-context
-            # refresh below the if/else has to run on this path too, and it is
-            # the common one -- every glass after the day's first lands here.
             stored_entry = await supabase_service.update_water_entry(
                 existing_entry['id'],
                 water_entry_data
@@ -54,17 +50,6 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
             water_entry_data['id'] = str(uuid.uuid4())
             water_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             stored_entry = await supabase_service.create_water_entry(water_entry_data)
-
-        # Refresh with the row the store returned, not the write payload: only
-        # the stored row carries shared_with_chat, and the context manager
-        # skips a hidden one.
-        context_manager = get_context_manager()
-        await context_manager.update_context_activity(
-            water_data.user_id,
-            'water',
-            stored_entry,
-            entry_date
-        )
 
         return {"success": True, "id": stored_entry['id'], "entry": stored_entry}
 
@@ -147,7 +132,6 @@ async def delete_water_entry(user_id: str, date: str, tz_offset: int = Depends(g
         print(f"💧 Deleting water entry for user: {user_id}, date: {date}")
 
         supabase_service = get_supabase_service()
-        context_manager = get_context_manager()
 
         # Parse date
         entry_date = get_user_date(date, tz_offset)
@@ -161,14 +145,6 @@ async def delete_water_entry(user_id: str, date: str, tz_offset: int = Depends(g
         success = await supabase_service.delete_water_entry(existing['id'])
 
         if success:
-            # Update context - reset water to 0
-            await context_manager.update_context_activity(
-                user_id,
-                'water',
-                {'glasses_consumed': 0},
-                entry_date
-            )
-
             return {"success": True, "message": "Water entry deleted successfully"}
         else:
             return {"success": False, "message": "Failed to delete water entry"}

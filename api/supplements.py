@@ -6,7 +6,6 @@ import uuid
 
 from models.supplement_schemas import SupplementPreferenceCreate, SupplementLogCreate
 from services.supabase_service import get_supabase_service
-from services.chat_context_manager import get_context_manager
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
 
 router = APIRouter()
@@ -119,17 +118,6 @@ async def log_supplement_intake(log_data: SupplementLogCreate, tz_offset: int = 
             log_entry_data['id'] = str(uuid.uuid4())
             log_entry_data['created_at'] = get_user_now(tz_offset).isoformat()
             stored_log = await supabase_service.create_supplement_log(log_entry_data)
-
-        # Refresh with the row the store returned, not the write payload: only
-        # the stored row carries shared_with_chat, and the context manager
-        # skips a hidden one.
-        context_manager = get_context_manager()
-        await context_manager.update_context_activity(
-            log_data.user_id,
-            'supplement',
-            stored_log,
-            entry_date
-        )
 
         return {"success": True, "id": stored_log['id'], "log": stored_log}
 
