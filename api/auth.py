@@ -8,6 +8,7 @@ import uuid
 from services.supabase_service import get_supabase_service
 from api.users import hash_password, verify_password
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error, public_message
     
 def normalize_timeline(timeline_value: str) -> str:
     """Normalize timeline values to week format"""
@@ -207,7 +208,7 @@ async def create_health_user(user_profile: HealthUserCreate, tz_offset: int = De
         print(f"❌ Error creating Flutter user: {e}")
         return HealthUserResponse(
             success=False,
-            error=str(e)
+            error=public_message(e)
         )
 
 @router.post("/onboarding/complete", response_model=HealthUserResponse)
@@ -348,7 +349,7 @@ async def complete_flutter_onboarding(
         traceback.print_exc()
         return HealthUserResponse(
             success=False,
-            error=str(e)
+            error=public_message(e)
         )
 
 @router.get("/users/{user_id}", response_model=HealthUserResponse)
@@ -384,7 +385,7 @@ async def get_health_user_profile(user_id: str):
         print(f"❌ Error getting Flutter user profile: {e}")
         return HealthUserResponse(
             success=False,
-            error=str(e)
+            error=public_message(e)
         )
 
 
@@ -421,7 +422,7 @@ async def delete_user_account(user_id: str):
         raise
     except Exception as e:
         print(f"❌ Error deleting account for {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.post("/auth/login")
@@ -473,7 +474,7 @@ async def auth_login(login_data: dict):
         raise
     except Exception as e:
         print(f"❌ Login error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.put("/users/{user_id}")
 async def update_user_profile(user_id: str, user_data: dict):
@@ -489,7 +490,7 @@ async def update_user_profile(user_id: str, user_data: dict):
 
     except Exception as e:
         print(f"❌ Error updating user: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.put("/users/update-user/{user_id}")
@@ -531,5 +532,5 @@ async def update_user_profile_compat(user_id: str, user_data: dict):
         raise
     except Exception as e:
         print(f"❌ Error updating user (compat): {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
     

@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from services.supabase_service import get_supabase_service
 from services.goal_frameworks import WeightGoalFrameworks
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -60,7 +61,7 @@ async def get_user_framework(user_id: str):
         print(f"❌ Error getting user framework: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/frameworks/compare")
 async def compare_frameworks():
@@ -97,4 +98,4 @@ async def compare_frameworks():
 
     except Exception as e:
         print(f"❌ Error comparing frameworks: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

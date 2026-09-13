@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from services.supabase_service import get_supabase_service
 import uuid
+from utils.errors import internal_error
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -46,7 +47,7 @@ async def log_notification(notification: LogNotificationRequest):
         print(f"❌ Error logging notification: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/unread/{user_id}")
 async def get_unread_count(user_id: str):
@@ -71,7 +72,7 @@ async def get_unread_count(user_id: str):
         
     except Exception as e:
         print(f"❌ Error getting unread count: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/{user_id}")
 async def get_notifications(user_id: str, limit: int = 50):
@@ -98,7 +99,7 @@ async def get_notifications(user_id: str, limit: int = 50):
         print(f"❌ Error getting notifications: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.put("/mark-read/{notification_id}")
 async def mark_notification_read(notification_id: str):
@@ -115,7 +116,7 @@ async def mark_notification_read(notification_id: str):
         
     except Exception as e:
         print(f"❌ Error marking notification as read: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.put("/mark-all-read/{user_id}")
 async def mark_all_notifications_read(user_id: str):
@@ -133,7 +134,7 @@ async def mark_all_notifications_read(user_id: str):
         
     except Exception as e:
         print(f"❌ Error marking all as read: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/{notification_id}")
 async def delete_notification(notification_id: str):
@@ -155,7 +156,7 @@ async def delete_notification(notification_id: str):
         
     except Exception as e:
         print(f"❌ Error deleting notification: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/{user_id}/clear-all")
 async def clear_all_notifications(user_id: str):
@@ -179,4 +180,4 @@ async def clear_all_notifications(user_id: str):
         
     except Exception as e:
         print(f"❌ Error clearing notifications: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

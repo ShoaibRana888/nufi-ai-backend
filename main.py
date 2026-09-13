@@ -27,6 +27,7 @@ from api.weekly_context import router as weekly_router
 from api.activity_check import router as activity_check_router
 from api.meal_suggestions import router as suggestions_router
 from api.sharing import router as sharing_router
+from utils.errors import public_message
 
 # Load environment variables
 load_dotenv()
@@ -184,9 +185,10 @@ async def health_check():
         }
         
     except Exception as e:
+        print(f"❌ /health: {type(e).__name__}: {e}")
         return {
             "status": "unhealthy",
-            "error": str(e),
+            "error": public_message(e),
             "message": "Some services are down"
         }
     
@@ -219,7 +221,8 @@ async def test_openai(test_data: dict):
             return {"error": "Specify type: 'meal' or 'chat'"}
             
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        print(f"❌ /test/ai: {type(e).__name__}: {e}")
+        return {"success": False, "error": public_message(e)}
 
 if __name__ == "__main__":
     import uvicorn

@@ -12,6 +12,7 @@ from models.meal_schemas import (
 from services.supabase_service import get_supabase_service
 from services.meal_analysis_service import get_meal_analysis_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -142,7 +143,7 @@ async def analyze_meal(request: MealAnalysisRequest, tz_offset: int = Depends(ge
         print(f"❌ Error analyzing meal: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/log", response_model=dict)
 async def log_meal(meal_entry: dict):
@@ -172,7 +173,7 @@ async def log_meal(meal_entry: dict):
         
     except Exception as e:
         print(f"❌ Error logging meal: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/{user_id}/history", response_model=MealHistoryResponse)
 async def get_meal_history(user_id: str, limit: int = 20, date_from: Optional[str] = None):
@@ -214,7 +215,7 @@ async def get_meal_history(user_id: str, limit: int = 20, date_from: Optional[st
         
     except Exception as e:
         print(f"❌ Error getting meal history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
     
 @router.delete("/{meal_id}")
 async def delete_meal(meal_id: str):
@@ -248,7 +249,7 @@ async def delete_meal(meal_id: str):
             
     except Exception as e:
         print(f"❌ Error deleting meal: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 # Helper function to recalculate daily nutrition after deletion
 async def recalculate_daily_nutrition(supabase_service, user_id: str, date: str):
@@ -378,7 +379,7 @@ async def create_meal_preset(preset_data: dict):
         return {"success": True, "preset": created}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/presets/{user_id}")
 async def get_meal_presets(user_id: str):
@@ -388,7 +389,7 @@ async def get_meal_presets(user_id: str):
         presets = await supabase_service.get_user_meal_presets(user_id)
         return {"success": True, "presets": presets}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/presets/{preset_id}/use")
 async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(get_timezone_offset)):
@@ -479,7 +480,7 @@ async def use_meal_preset(preset_id: str, data: dict, tz_offset: int = Depends(g
         print(f"❌ Error using preset: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to use preset: {str(e)}")
+        raise internal_error(e)
 
 @router.get("/suggestions/{user_id}")
 async def get_meal_suggestions(user_id: str):
@@ -500,7 +501,7 @@ async def get_meal_suggestions(user_id: str):
             "presets": top_presets
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
     
 @router.delete("/presets/{preset_id}")
 async def delete_meal_preset(preset_id: str):
@@ -527,7 +528,7 @@ async def delete_meal_preset(preset_id: str):
         
     except Exception as e:
         print(f"❌ Error deleting preset: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 def calculate_calorie_goal(user_profile: dict) -> int:
     """Calculate daily calorie goal based on user's TDEE and weight goal"""
@@ -658,7 +659,7 @@ async def get_energy_balance(
         print(f"❌ Error getting energy balance: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.get("/remaining-macros/{user_id}")
@@ -769,7 +770,7 @@ async def get_remaining_macros(
         
     except Exception as e:
         print(f"❌ Error getting remaining macros: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
     
 @router.get("/trends/{user_id}")
 async def get_nutrition_trends(
@@ -880,7 +881,7 @@ async def get_nutrition_trends(
         print(f"❌ Error getting nutrition trends: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 def _calculate_streak(trend_data: list) -> int:
@@ -1003,7 +1004,7 @@ async def get_macro_breakdown(
         
     except Exception as e:
         print(f"❌ Error getting macro breakdown: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
     
 @router.get("/micronutrients/{user_id}")
 async def get_micronutrient_summary(
@@ -1111,7 +1112,7 @@ async def get_micronutrient_summary(
         
     except Exception as e:
         print(f"❌ Error getting micronutrient summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.get("/history/{user_id}")
@@ -1178,7 +1179,7 @@ async def get_meal_history_flutter(user_id: str, limit: int = 50, date: str = No
 
     except Exception as e:
         print(f"❌ Error getting Flutter meal history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.put("/{meal_id}")
 async def update_meal_flutter(meal_id: str, meal_data: dict):
@@ -1209,4 +1210,4 @@ async def update_meal_flutter(meal_id: str, meal_data: dict):
 
     except Exception as e:
         print(f"❌ Error updating meal: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

@@ -10,6 +10,7 @@ from datetime import datetime, time
 from apscheduler.schedulers.background import BackgroundScheduler
 from services.supabase_service import get_supabase_service
 import os
+from utils.errors import internal_error
 
 router = APIRouter(prefix="/api/fcm", tags=["fcm"])
 
@@ -218,7 +219,7 @@ async def register_fcm_token(data: FCMTokenRegister):
             "data": result
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/test")
 async def send_test_notification(data: FCMTestNotification):
@@ -242,7 +243,7 @@ async def send_test_notification(data: FCMTestNotification):
             raise HTTPException(status_code=404, detail="No FCM token found for user")
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/subscribe")
 async def subscribe_to_notifications(data: FCMSubscribe):
@@ -262,7 +263,7 @@ async def subscribe_to_notifications(data: FCMSubscribe):
             "message": "Subscribed to notifications successfully"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/unsubscribe")
 async def unsubscribe_from_notifications(data: FCMSubscribe):
@@ -281,7 +282,7 @@ async def unsubscribe_from_notifications(data: FCMSubscribe):
             "message": "Unsubscribed from notifications successfully"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 # Scheduled notification functions
 async def send_breakfast_notifications():
