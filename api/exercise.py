@@ -6,6 +6,7 @@ import uuid
 
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error, public_message
 
 router = APIRouter()
 
@@ -131,7 +132,7 @@ async def log_exercise(exercise_data: dict, tz_offset: int = Depends(get_timezon
         print(f"❌ Error logging exercise: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/exercise/logs/{user_id}")
 async def get_exercise_logs(
@@ -160,7 +161,7 @@ async def get_exercise_logs(
 
     except Exception as e:
         print(f"❌ Error getting exercise logs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/exercise/stats/{user_id}")
 async def get_exercise_stats(user_id: str, days: int = 30, tz_offset: int = Depends(get_timezone_offset)):
@@ -252,7 +253,7 @@ async def get_exercise_stats(user_id: str, days: int = 30, tz_offset: int = Depe
                 "most_common_type": None,
                 "type_breakdown": {}
             },
-            "error": str(e)
+            "error": public_message(e)
         }
 
 @router.delete("/exercise/log/{exercise_id}")
@@ -280,7 +281,7 @@ async def delete_exercise_log(exercise_id: str):
 
     except Exception as e:
         print(f"❌ Error deleting exercise: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/exercise/weekly-summary/{user_id}")
 async def get_weekly_exercise_summary(user_id: str, tz_offset: int = Depends(get_timezone_offset)):
@@ -377,4 +378,4 @@ async def get_exercise_history(
 
     except Exception as e:
         print(f"❌ Error getting exercise history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

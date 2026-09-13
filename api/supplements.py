@@ -7,6 +7,7 @@ import uuid
 from models.supplement_schemas import SupplementPreferenceCreate, SupplementLogCreate
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -54,7 +55,7 @@ async def save_supplement_preferences(preferences_data: SupplementPreferenceCrea
         print(f"❌ Error saving supplement preferences: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/supplements/preferences/{user_id}")
 async def get_supplement_preferences(user_id: str):
@@ -75,7 +76,7 @@ async def get_supplement_preferences(user_id: str):
 
     except Exception as e:
         print(f"❌ Error getting supplement preferences: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/supplements/log", response_model=dict)
 async def log_supplement_intake(log_data: SupplementLogCreate, tz_offset: int = Depends(get_timezone_offset)):
@@ -123,7 +124,7 @@ async def log_supplement_intake(log_data: SupplementLogCreate, tz_offset: int = 
 
     except Exception as e:
         print(f"❌ Error logging supplement intake: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/supplements/status/{user_id}")
 async def get_todays_supplement_status(user_id: str, date: Optional[str] = None, tz_offset: int = Depends(get_timezone_offset)):
@@ -149,7 +150,7 @@ async def get_todays_supplement_status(user_id: str, date: Optional[str] = None,
 
     except Exception as e:
         print(f"❌ Error getting supplement status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/supplements/history/{user_id}")
 async def get_supplement_history(user_id: str, supplement_name: Optional[str] = None, days: int = 30):
@@ -176,7 +177,7 @@ async def get_supplement_history(user_id: str, supplement_name: Optional[str] = 
 
     except Exception as e:
         print(f"❌ Error getting supplement history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/supplements/{user_id}/history")
 async def get_supplement_history_in_range(
@@ -210,7 +211,7 @@ async def get_supplement_history_in_range(
         }
     except Exception as e:
         print(f"❌ Error getting supplement history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/supplements/stats/{user_id}")
 async def get_supplement_stats(user_id: str, days: int = 30):
@@ -273,7 +274,7 @@ async def get_supplement_stats(user_id: str, days: int = 30):
 
     except Exception as e:
         print(f"❌ Error getting supplement stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/supplements/preferences/{preference_id}")
 async def delete_supplement_preference(preference_id: str):
@@ -291,7 +292,7 @@ async def delete_supplement_preference(preference_id: str):
 
     except Exception as e:
         print(f"❌ Error deleting supplement preference: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/supplements/{user_id}/status")
 async def get_supplement_status_by_date(
@@ -320,4 +321,4 @@ async def get_supplement_status_by_date(
         }
     except Exception as e:
         print(f"❌ Error getting supplement status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

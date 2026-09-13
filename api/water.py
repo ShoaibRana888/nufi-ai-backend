@@ -7,6 +7,7 @@ import uuid
 from models.water_schemas import WaterEntryCreate
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -55,7 +56,7 @@ async def save_water_entry(water_data: WaterEntryCreate, tz_offset: int = Depend
 
     except Exception as e:
         print(f"❌ Error saving water entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/water/{user_id}/today")
 async def get_today_water(user_id: str, tz_offset: int = Depends(get_timezone_offset)):
@@ -71,7 +72,7 @@ async def get_today_water(user_id: str, tz_offset: int = Depends(get_timezone_of
 
     except Exception as e:
         print(f"❌ Error getting today's water: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/water/{user_id}/history")
 async def get_water_history(user_id: str, limit: int = 30):
@@ -87,7 +88,7 @@ async def get_water_history(user_id: str, limit: int = 30):
         }
     except Exception as e:
         print(f"❌ Error getting water history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/water/{user_id}")
 async def get_water_by_date(
@@ -123,7 +124,7 @@ async def get_water_by_date(
             }
     except Exception as e:
         print(f"❌ Error getting water by date: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/water/{user_id}/{date}")
 async def delete_water_entry(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
@@ -151,7 +152,7 @@ async def delete_water_entry(user_id: str, date: str, tz_offset: int = Depends(g
 
     except Exception as e:
         print(f"❌ Error deleting water entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/water/{user_id}/stats")
 async def get_water_stats(user_id: str, days: int = 7):
@@ -190,7 +191,7 @@ async def get_water_stats(user_id: str, days: int = 7):
 
     except Exception as e:
         print(f"❌ Error getting water stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 def _calculate_water_streak(achievements: List[bool]) -> int:
     """Calculate current streak of goal achievements"""

@@ -4,6 +4,7 @@ from datetime import datetime, date, timedelta
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_today
 from typing import Optional
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -159,7 +160,7 @@ async def check_activity_logged(
         raise
     except Exception as e:
         print(f"❌ Error checking activity: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.get("/check-multiple-activities/{user_id}")
@@ -195,4 +196,4 @@ async def check_multiple_activities(
         
     except Exception as e:
         print(f"❌ Error checking multiple activities: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
