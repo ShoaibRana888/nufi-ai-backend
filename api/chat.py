@@ -74,33 +74,6 @@ async def cleanup_old_contexts(days_to_keep: int = 7):
             'error': public_message(e)
         }
     
-@router.get("/context/cached/{user_id}")
-async def get_cached_context(
-    user_id: str,
-    date: Optional[str] = None,
-    tz_offset: int = Depends(get_timezone_offset),
-):
-    """Get cached context for user - much faster than rebuilding"""
-    try:
-        context_manager = get_context_manager()
-
-        target_date = (datetime.strptime(date, '%Y-%m-%d').date() if date
-                       else get_user_today(tz_offset))
-        result = await context_manager.get_or_create_context(user_id, target_date)
-        
-        return {
-            'success': True,
-            **result,
-            'is_cached': True
-        }
-        
-    except Exception as e:
-        print(f"Error getting cached context: {e}")
-        # Fallback to generating fresh. Called directly, not through FastAPI,
-        # so the dependency has to be handed over -- without it `tz_offset`
-        # is the bare `Depends` marker.
-        return await get_user_chat_context(user_id, date, tz_offset)
-
 @router.post("/context/rebuild/{user_id}")
 async def rebuild_context(user_id: str, date: Optional[str] = None):
     """Force rebuild context from source tables"""

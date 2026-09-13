@@ -242,6 +242,12 @@ designed interface, not an accident.
     ADR-0005 and ADR-0006 closed. Deleted on both sides. **Grep for the wrapper, not
     just the name**: a method with one caller in its own file is not dead.
   - `POST /chat/context/fix-today/{user_id}` — no client caller, server-day, deleted.
+  - `GET /chat/context/cached/{user_id}` — its client method `getCachedChatContext`
+    had zero callers; both deleted 2026-09-13, along with `generate_fresh_context`
+    (a second rebuilder reachable only from two `except` fallbacks, which now fall
+    back to `rebuild_context`) and, on the client, the three uncalled
+    `chat_service.dart` summary helpers and the `rebuildContextInBackground` calls
+    that rebuild-on-read (ADR-0008) made redundant.
 - **A response body is not a log line.** 111 handlers put `str(e)` into a response —
   96 as `HTTPException(500, detail=str(e))`, 13 as `{'error': str(e)}`, 2 in f-strings,
   plus three `error=str(e)` model fields in auth — and no route has auth, so a PostgREST

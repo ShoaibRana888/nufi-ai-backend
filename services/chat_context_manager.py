@@ -43,8 +43,10 @@ class ChatContextManager:
             
         except Exception as e:
             print(f"Error getting/creating context: {e}")
-            # Fallback to generating fresh context
-            return await self.generate_fresh_context(user_id, target_date)
+            # The cached read failed; build the day from the source tables.
+            # This used to call `generate_fresh_context`, a second rebuilder
+            # with a poorer shape (no body_state, no meal ids). One rebuilder.
+            return await self.rebuild_context(user_id, target_date)
     
     async def create_initial_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
         """Create initial context for a new day"""
@@ -114,117 +116,6 @@ class ChatContextManager:
             
         except Exception as e:
             print(f"Error creating initial context: {e}")
-            raise
-    
-    async def generate_fresh_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
-        """Generate fresh context from source tables (fallback)"""
-        try:
-            # Get user profile
-            user = await self.supabase_service.get_user_by_id(user_id)
-            if not user:
-                raise Exception("User not found")
-            
-            # One read for the whole shared day (candidate #1). This path used
-            # to fetch only meals, exercise, water and steps, then hardcode
-            # weight, sleep and supplements as "not logged" -- so the fallback
-            # context told the coach the user had logged neither weight nor
-            # sleep even when they had.
-            activities = await self.supabase_service.get_shared_activities_for_date(
-                user_id, target_date
-            )
-
-            meals = activities.get('meals', [])
-            exercises = activities.get('exercise', [])
-            water = activities.get('water', {})
-            steps = activities.get('steps', {})
-            sleep = activities.get('sleep', {})
-            weight = activities.get('weight', {})
-            supplements = activities.get('supplements', {})
-
-            # Calculate totals from meals
-            total_calories = sum(m.get('calories', 0) for m in meals)
-            total_protein = sum(m.get('protein_g', 0) for m in meals)
-            total_carbs = sum(m.get('carbs_g', 0) for m in meals)
-            total_fat = sum(m.get('fat_g', 0) for m in meals)
-            total_fiber = sum(m.get('fiber_g', 0) for m in meals)
-            
-            # Calculate exercise minutes
-            total_exercise_minutes = sum(e.get('duration_minutes', 0) for e in exercises)
-            
-            # Build context with ACTUAL DATA
-            context = {
-                'user_profile': {
-                    'name': user.get('name', ''),
-                    'age': user.get('age'),
-                    'weight': user.get('weight'),
-                    'height': user.get('height'),
-                    'primary_goal': user.get('primary_goal'),
-                    'weight_goal': user.get('weight_goal'),
-                    'activity_level': user.get('activity_level'),
-                    'tdee': user.get('tdee'),
-                    'target_weight': user.get('target_weight'),
-                    'dietary_preferences': user.get('dietary_preferences', []),
-                    'medical_conditions': user.get('medical_conditions', []),
-                },
-                'today_progress': {
-                    'date': str(target_date),
-                    'meals': [{'food_item': m['food_item'], 'calories': m['calories']} for m in meals],
-                    'meals_logged': len(meals),
-                    'total_calories': total_calories,
-                    'total_protein': total_protein,
-                    'total_carbs': total_carbs,
-                    'total_fat': total_fat,
-                    'exercises': [{'exercise_name': e['exercise_name'], 'duration': e.get('duration_minutes', 0)} for e in exercises],
-                    'exercises_done': len(exercises),
-                    'exercise_minutes': total_exercise_minutes,
-                    'water_glasses': water.get('glasses_consumed', 0),
-                    'steps': steps.get('steps', 0),
-                    'weight': weight.get('weight') if weight else None,
-                    'sleep_hours': sleep.get('total_hours') if sleep else None,
-                    'supplements_taken': self._get_supplements_taken(supplements),
-                    'totals': {
-                        'calories': total_calories,
-                        'protein': total_protein,
-                        'carbs': total_carbs,
-                        'fat': total_fat,
-                        'fiber': total_fiber
-                    }
-                },
-                'goals_progress': {
-                    'daily_calorie_goal': user.get('tdee', 2000),
-                    'water_goal_glasses': user.get('water_intake_glasses', 8),
-                    'step_goal': user.get('daily_step_goal', 10000),
-                    'weight_progress': {
-                        'current': user.get('weight'),
-                        'target': user.get('target_weight'),
-                        'status': 'in_progress'
-                    }
-                }
-            }
-            
-            # Save the POPULATED context
-            self.supabase_service.client.table('chat_contexts')\
-                .upsert({
-                    'user_id': user_id,
-                    'date': str(target_date),
-                    'context_data': context,
-                    'version': 1,
-                    'last_updated': datetime.now().isoformat()
-                })\
-                .execute()
-            
-            print(f"✅ Context rebuilt with {len(meals)} meals and {len(exercises)} exercises")
-            
-            return {
-                'context': context,
-                'version': 1,
-                'last_updated': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            print(f"Error generating fresh context: {e}")
-            import traceback
-            traceback.print_exc()
             raise
     
     async def rebuild_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
@@ -535,7 +426,7 @@ class ChatContextManager:
             
         except Exception as e:
             print(f"Error ensuring daily context: {e}")
-            return await self.generate_fresh_context(user_id, today)
+            return await self.rebuild_context(user_id, today)
 
 # Singleton instance
 _context_manager = None
