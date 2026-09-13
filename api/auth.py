@@ -367,12 +367,18 @@ async def get_health_user_profile(user_id: str):
                 error="User not found"
             )
         
-        # ✅ Auto-initialize starting weight if missing
+        # Auto-initialize starting weight if missing. A lazy backfill inside
+        # a profile read: if it fails the profile is still the answer, so
+        # log and serve the row as it is rather than failing the read.
         if not user.get('starting_weight'):
             print(f"🔄 Auto-initializing starting weight for user {user_id}")
-            await supabase_service.initialize_starting_weight_for_user(user_id)
-            # Fetch user again to get updated data
-            user = await supabase_service.get_user_by_id(user_id)
+            try:
+                await supabase_service.initialize_starting_weight_for_user(user_id)
+            except Exception as e:
+                print(f"⚠️ Initializing starting weight failed for {user_id}: {e}")
+            else:
+                # Fetch user again to get updated data
+                user = await supabase_service.get_user_by_id(user_id)
         
         return HealthUserResponse(
             success=True,

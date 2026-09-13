@@ -56,6 +56,10 @@ projection dropped `shared_with_chat`, which the contract requires every row to 
    - Two call sites read strictly better now. `api/water.py:30` and `api/steps.py:30` look
      up an existing row before an upsert, so a swallowed read meant "no existing entry" and
      wrote a **duplicate row** instead of updating.
+     > **Corrected 2026-09-13 (ADR-0009).** Not a duplicate row: `daily_water` and
+     > `daily_steps` carry `UNIQUE (user_id, date)`, so the insert failed on the
+     > constraint and the user's update was not made. The fix stands; the stated
+     > harm was wrong, and the schema was not checked when it was written.
 2. **Widen `get_weight_by_date` to keep `shared_with_chat`** rather than reading weight raw
    for this one endpoint. Widening the store method keeps the column from going missing on
    one caller's path only; reading raw would have put a second spelling of the same read
