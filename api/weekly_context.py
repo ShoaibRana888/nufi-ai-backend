@@ -14,7 +14,9 @@ def _parse_day(value: Optional[str], fallback: date) -> date:
         return fallback
     try:
         return datetime.strptime(value, '%Y-%m-%d').date()
-    except ValueError:
+    except (ValueError, TypeError):
+        # TypeError: the body carried a non-string (`{"date": 123}`), which
+        # the dict annotation lets through. Bad input either way, not a 500.
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
 
 

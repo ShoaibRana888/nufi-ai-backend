@@ -121,3 +121,10 @@ def test_rebuild_with_no_date_is_the_users_today(client, manager):
     client.post(f'{BASE}/rebuild/{USER}', headers=BEHIND)
 
     assert manager.rebuilt == [user_today(-720)]
+
+
+def test_rebuild_with_a_non_string_body_date_is_a_400(client, manager):
+    """`{"date": 123}` passes the dict annotation; strptime raises TypeError,
+    which used to fall through to the catch-all as a 500."""
+    assert client.post(f'{BASE}/rebuild/{USER}', json={'date': 123}).status_code == 400
+    assert manager.rebuilt == []
