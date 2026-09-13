@@ -115,6 +115,13 @@ def test_the_context_manager_has_no_incremental_merge():
         )
 
 
+def test_there_is_one_rebuilder():
+    """`generate_fresh_context` was a second one, reachable only from two
+    `except` fallbacks, with a poorer shape (no body_state, no meal ids)."""
+    assert not hasattr(ChatContextManager, 'generate_fresh_context')
+    assert hasattr(ChatContextManager, 'rebuild_context')
+
+
 def test_no_write_endpoint_touches_the_context_manager():
     """The refresh cost every tracker write two round-trips for a cache with
     one reader that now rebuilds for itself. `api/sharing.py` keeps its

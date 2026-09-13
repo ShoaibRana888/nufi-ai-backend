@@ -35,7 +35,6 @@ DELETE /steps/X/X
 DELETE /users/X
 DELETE /weight/X
 GET /chat/context/X
-GET /chat/context/cached/X
 GET /chat/context/check/X
 GET /chat/history/XX
 GET /chat/messages/X
