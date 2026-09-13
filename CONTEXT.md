@@ -201,6 +201,14 @@ designed interface, not an accident.
   far enough east of the Oregon region, a row dated to the server's today compared
   equal to "today" and the reset never fired. Making dormant code reachable is a
   behaviour change: read it before shipping the fix that switches it on.
+  - **And then it was deleted** ([ADR-0010](docs/adr/0010-the-daily-reset-is-dead.md)).
+    Once `GET /chat/context/{id}` rebuilt on read (ADR-0008), the reset's empty row
+    was never read without being rewritten first — the one reader of stored rows
+    runs after a rebuild on both live paths — and both client callers discarded the
+    result. Two round-trips per app open and chat open, for nobody. `deduplicate_context`
+    went with it: the rows it cleaned were the old merge's, and the three that still
+    carry duplicates are dated 2025. Also learned there: `main.py`'s `OPTIONS`
+    catch-all makes every unknown path a **405, not a 404**.
 - **The weekly endpoints are on the user's day too** (2026-09-13). `api/weekly_context.py`
   resolved both the target and "today" from the server clock; the dashboard's weekly
   card sends no date, so a UTC-8 user's Sunday evening read the *next*, empty week, and
@@ -221,12 +229,13 @@ designed interface, not an accident.
   `tests/test_no_shadowed_routes.py` fails on any duplicated path+method.
 - **A route can also be served where nobody looks.** `APIRouter(prefix=...)` applies the
   prefix *at decoration time*, so a decorator that spells the prefix out again produces
-  `/chat/chat/...`. Three of `api/chat.py`'s routes did, and two of them are called by
-  the client on app open and chat open — `checkAndResetDailyContext` swallows the 404 and
-  returns `false`, so the daily context reset had never once run.
-  `tests/test_router_prefixes.py` pins the structural rule.
+  `/chat/chat/...`. Three of `api/chat.py`'s routes did, and two of them were called by
+  the client on app open and chat open — `checkAndResetDailyContext` swallowed the 404 and
+  returned `false`, so the daily context reset had never once run (and, once it did,
+  turned out to be dead — ADR-0010). `tests/test_router_prefixes.py` pins the
+  structural rule.
 - **The HTTP contract with `nufi_app` is now enforced, not just asserted.**
-  `tests/test_client_contract.py` holds a snapshot of all 80 paths the client's
+  `tests/test_client_contract.py` holds a snapshot of all 73 paths the client's
   `ApiClient` calls and fails if one reaches no route here. It catches the direction that
   fails silently — the backend not serving what the client already calls — and cannot see
   paths the client adds after the snapshot, so **refresh the fixture when the client's API

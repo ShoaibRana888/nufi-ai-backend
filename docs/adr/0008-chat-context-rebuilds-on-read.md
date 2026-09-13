@@ -78,6 +78,8 @@ further dead client method, noted for the next deletion pass.
 - `chat_contexts` rows are written only by `rebuild_context`, `generate_fresh_context`
   and `create_initial_context`. `deduplicate_context` stays on the read path for rows
   the old merge left behind; once no such rows exist it is a deletion candidate.
+  *Deleted 2026-09-13 (ADR-0010): three such rows remain, all from 2025, and every
+  read of a stored row now follows a rebuild of the same row.*
 - `tests/test_chat_context_rebuilds_on_read.py` pins the endpoint's three outcomes,
   the date resolution, and — by source inspection — that no write endpoint module
   mentions the context manager and the two methods do not exist. 231 → 238.

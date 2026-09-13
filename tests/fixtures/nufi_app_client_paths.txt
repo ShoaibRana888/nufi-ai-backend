@@ -1,5 +1,5 @@
-# Every HTTP path nufi_app's ApiClient calls, as of nufi_app fc596f1
-# (origin/master). One "METHOD /path" per line, relative to ApiClient.baseUrl
+# Every HTTP path nufi_app's ApiClient calls, as of nufi_app 679e05d
+# (chore/delete-daily-reset, PR #21). One "METHOD /path" per line, relative to ApiClient.baseUrl
 # (".../api/health"); Dart interpolations are replaced with the literal X.
 #
 # Regenerate from a nufi_app checkout with:
@@ -35,7 +35,6 @@ DELETE /steps/X/X
 DELETE /users/X
 DELETE /weight/X
 GET /chat/context/X
-GET /chat/context/check/X
 GET /chat/history/XX
 GET /chat/messages/X
 GET /check
@@ -76,7 +75,6 @@ PATCH /sharing/X
 PATCH /user/X/weight
 POST /auth/login
 POST /chat
-POST /chat/context/daily-reset/X
 POST /chat/context/rebuild/X
 POST /exercise/log
 POST /meals/analyze
