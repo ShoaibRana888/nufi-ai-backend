@@ -207,7 +207,6 @@ def test_the_fallback_context_is_for_the_same_day(wired):
     (HealthChatService.get_enhanced_context, 'today'),
     (HealthChatService.get_user_context, 'today'),
     (ChatContextManager.get_or_create_context, 'target_date'),
-    (ChatContextManager.ensure_daily_context, 'today'),
 ])
 def test_the_day_has_no_default(func, param):
     """A default is where the server day creeps back in."""
@@ -227,7 +226,6 @@ def test_nothing_on_the_chat_path_reads_the_server_clock():
         HealthChatService.get_user_context,
         HealthChatService._get_empty_context,
         ChatContextManager.get_or_create_context,
-        ChatContextManager.ensure_daily_context,
     ):
         assert 'now().date()' not in inspect.getsource(func), func.__qualname__
 

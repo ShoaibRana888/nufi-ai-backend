@@ -13,10 +13,19 @@ class ChatContextManager:
     async def get_or_create_context(self, user_id: str, target_date: date) -> Dict[str, Any]:
         """Get existing context or create a new one for the specified date.
 
-        The date is required. It used to default to the server clock via
-        `ensure_daily_context`, and the coach read its context through that
-        default -- a different day from the one the trackers write for any
-        user not on UTC. Callers know whose day they mean; say so.
+        The date is required. It used to default to the server clock, and
+        the coach read its context through that default -- a different day
+        from the one the trackers write for any user not on UTC. Callers
+        know whose day they mean; say so.
+
+        The stored row is served as it is. The per-read cleanup that once
+        ran here (`deduplicate_context`, for rows the old incremental merge
+        left with repeated meals and drifted flat totals) is gone, and the
+        rows it existed for were repaired first by running it once at rest
+        (2026-09-14). On the rebuild-failed fallback this read serves a row
+        without rewriting it, so a legacy row here would have been served
+        as it was -- which is why the rows had to be fixed before the code
+        went. ADR-0010.
         """
         try:
             # Try to get existing context
@@ -28,16 +37,12 @@ class ChatContextManager:
             
             if response.data:
                 context_record = response.data[0]
-                
-                # Deduplicate context data before returning
-                cleaned_context = self.deduplicate_context(context_record['context_data'])
-                
                 return {
-                    'context': cleaned_context,
+                    'context': context_record['context_data'],
                     'version': context_record['version'],
                     'last_updated': context_record['last_updated']
                 }
-            
+
             # Create new context if none exists
             return await self.create_initial_context(user_id, target_date)
             
@@ -327,57 +332,6 @@ class ChatContextManager:
         
         return taken
 
-    def deduplicate_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Remove duplicate entries from context"""
-        
-        # Deduplicate meals by ID
-        seen_meal_ids = set()
-        unique_meals = []
-        for meal in context['today_progress']['meals']:
-            meal_id = meal.get('id')
-            if meal_id not in seen_meal_ids:
-                unique_meals.append(meal)
-                seen_meal_ids.add(meal_id)
-        context['today_progress']['meals'] = unique_meals
-        
-        # Deduplicate exercises by ID
-        seen_exercise_ids = set()
-        unique_exercises = []
-        for exercise in context['today_progress']['exercises']:
-            exercise_id = exercise.get('id')
-            if exercise_id not in seen_exercise_ids:
-                unique_exercises.append(exercise)
-                seen_exercise_ids.add(exercise_id)
-        context['today_progress']['exercises'] = unique_exercises
-        
-        # Recalculate totals
-        totals = {
-            'calories': sum(m.get('calories', 0) for m in unique_meals),
-            'protein': sum(m.get('protein_g', 0) for m in unique_meals),
-            'carbs': sum(m.get('carbs_g', 0) for m in unique_meals),
-            'fat': sum(m.get('fat_g', 0) for m in unique_meals),
-            'fiber': sum(m.get('fiber_g', 0) for m in unique_meals)
-        }
-        context['today_progress']['totals'] = totals
-
-        # Keep the flat total_* fields in sync with totals. Incremental activity
-        # updates only maintain `totals`, so without this the flat fields stay
-        # stale (e.g. total_calories=0 while totals.calories=2285) — which the
-        # app's welcome banner and any flat-shape reader would show as zero.
-        context['today_progress']['total_calories'] = totals['calories']
-        context['today_progress']['total_protein'] = totals['protein']
-        context['today_progress']['total_carbs'] = totals['carbs']
-        context['today_progress']['total_fat'] = totals['fat']
-        context['today_progress']['total_fiber'] = totals['fiber']
-
-        context['today_progress']['meals_logged'] = len(unique_meals)
-        context['today_progress']['exercises_done'] = len(unique_exercises)
-        context['today_progress']['exercise_minutes'] = sum(
-            e.get('duration_minutes', 0) for e in unique_exercises
-        )
-        
-        return context
-
     async def _save_context(self, user_id: str, target_date: date, context: Dict, version: int):
         """Save context to database"""
         try:
@@ -392,41 +346,6 @@ class ChatContextManager:
                 .execute()
         except Exception as e:
             print(f"⚠️ Error saving context: {e}")
-
-    async def ensure_daily_context(self, user_id: str, today: date) -> Dict[str, Any]:
-        """Ensure a context exists for today.
-
-        `today` is the *user's* date, and it is required. "Today" on the
-        server clock is a different day for anyone far enough east or west,
-        and this method decides which row counts as current. The server-date
-        default existed for `get_or_create_context`'s dateless form, which
-        is gone.
-        """
-        try:
-            response = self.supabase_service.client.table('chat_contexts')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .eq('date', str(today))\
-                .execute()
-            
-            if response.data:
-                context_record = response.data[0]
-                
-                # Deduplicate context data before returning
-                cleaned_context = self.deduplicate_context(context_record['context_data'])
-                
-                return {
-                    'context': cleaned_context,
-                    'version': context_record['version'],
-                    'last_updated': context_record['last_updated']
-                }
-            
-            # Create new context for today
-            return await self.create_initial_context(user_id, today)
-            
-        except Exception as e:
-            print(f"Error ensuring daily context: {e}")
-            return await self.rebuild_context(user_id, today)
 
 # Singleton instance
 _context_manager = None
