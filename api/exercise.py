@@ -6,7 +6,7 @@ import uuid
 
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
-from utils.errors import internal_error, public_message
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -239,22 +239,12 @@ async def get_exercise_stats(user_id: str, days: int = 30, tz_offset: int = Depe
         return {"success": True, "stats": stats}
 
     except Exception as e:
+        # A 200 with zeroed stats told the client -- and anything watching
+        # status codes -- that the user had no workouts. The client treats a
+        # non-200 as "no stats" already, so this degrades the same way there,
+        # honestly.
         print(f"❌ Error getting exercise stats: {e}")
-        import traceback
-        traceback.print_exc()
-        # Return empty stats on error, don't raise exception
-        return {
-            "success": False,
-            "stats": {
-                "total_workouts": 0,
-                "total_minutes": 0,
-                "total_calories": 0.0,
-                "avg_duration": 0.0,
-                "most_common_type": None,
-                "type_breakdown": {}
-            },
-            "error": public_message(e)
-        }
+        raise internal_error(e)
 
 @router.delete("/exercise/log/{exercise_id}")
 async def delete_exercise_log(exercise_id: str):
@@ -345,7 +335,7 @@ async def get_weekly_exercise_summary(user_id: str, tz_offset: int = Depends(get
 
     except Exception as e:
         print(f"❌ Error getting weekly summary: {e}")
-        return {"success": False, "summary": {}}
+        raise internal_error(e)
 
 @router.get("/exercise/history/{user_id}")
 async def get_exercise_history(
