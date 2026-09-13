@@ -6,6 +6,7 @@ from services.supabase_service import get_supabase_service
 from services.chat_context_manager import get_context_manager
 from services.chat_service import get_chat_service
 from utils.timezone_utils import get_timezone_offset, get_user_now, get_user_today
+from utils.errors import internal_error, public_message
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -70,7 +71,7 @@ async def cleanup_old_contexts(days_to_keep: int = 7):
     except Exception as e:
         return {
             'success': False,
-            'error': str(e)
+            'error': public_message(e)
         }
     
 @router.post("/context/rebuild/{user_id}")
@@ -91,7 +92,7 @@ async def rebuild_context(user_id: str, date: Optional[str] = None):
     except Exception as e:
         return {
             'success': False,
-            'error': str(e)
+            'error': public_message(e)
         }
     
 @router.post("/rebuild-context")
@@ -115,7 +116,7 @@ async def rebuild_chat_context(request: Dict[str, Any]):
         }
     except Exception as e:
         print(f"Error rebuilding context: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
     
 @router.get("/context/check/{user_id}")
 async def check_context_date(
@@ -164,7 +165,7 @@ async def check_context_date(
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/context/daily-reset/{user_id}")
 async def daily_context_reset(
@@ -186,7 +187,7 @@ async def daily_context_reset(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.post("", response_model=dict)
@@ -226,7 +227,7 @@ async def health_chat(request: dict, tz_offset: int = Depends(get_timezone_offse
         return {
             "success": False,
             "response": "I'm having trouble connecting. Please check your connection and try again.",
-            "error": str(e)
+            "error": public_message(e)
         }
 
 @router.get("/history/{user_id}")

@@ -6,6 +6,7 @@ import uuid
 from models.sleep_schemas import SleepEntryCreate, SleepEntryUpdate
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error, public_message
 
 router = APIRouter()
 
@@ -91,7 +92,7 @@ async def create_sleep_entry(sleep_data: SleepEntryCreate, tz_offset: int = Depe
 
     except Exception as e:
         print(f"❌ Error creating sleep entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/sleep/entries/{user_id}")
 async def get_sleep_history(user_id: str, limit: int = 30):
@@ -129,7 +130,7 @@ async def get_sleep_history(user_id: str, limit: int = 30):
         print(f"❌ Error getting sleep history: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/sleep/entries/{user_id}/{date}")
 async def get_sleep_by_date(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
@@ -185,7 +186,7 @@ async def get_sleep_by_date(user_id: str, date: str, tz_offset: int = Depends(ge
         return {
             "success": False,
             "entry": None,
-            "error": str(e)
+            "error": public_message(e)
         }
 
 @router.put("/sleep/entries/{entry_id}")
@@ -229,7 +230,7 @@ async def update_sleep_entry(entry_id: str, sleep_data: SleepEntryUpdate, tz_off
 
     except Exception as e:
         print(f"❌ Error updating sleep entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/sleep/entries/{entry_id}")
 async def delete_sleep_entry(entry_id: str):
@@ -256,7 +257,7 @@ async def delete_sleep_entry(entry_id: str):
 
     except Exception as e:
         print(f"❌ Error deleting sleep entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/sleep/stats/{user_id}")
 async def get_sleep_stats(user_id: str, days: int = 30):
@@ -303,4 +304,4 @@ async def get_sleep_stats(user_id: str, days: int = 30):
 
     except Exception as e:
         print(f"❌ Error getting sleep stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, date
 from typing import Any, Dict, Optional
 from services.weekly_context_manager import get_weekly_context_manager
+from utils.errors import internal_error
 from utils.timezone_utils import get_timezone_offset, get_user_today
 
 router = APIRouter(prefix="/weekly", tags=["weekly_context"])
@@ -46,7 +47,7 @@ async def get_weekly_context(
         raise
     except Exception as e:
         print(f"Error getting weekly context: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/recent/{user_id}")
 async def get_recent_weeks(
@@ -69,7 +70,7 @@ async def get_recent_weeks(
         
     except Exception as e:
         print(f"Error getting recent weeks: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/rebuild/{user_id}")
 async def rebuild_weekly_context(
@@ -94,7 +95,7 @@ async def rebuild_weekly_context(
         raise
     except Exception as e:
         print(f"Error rebuilding weekly context: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/summary/{user_id}")
 async def get_weekly_summaries(
@@ -129,4 +130,4 @@ async def get_weekly_summaries(
         
     except Exception as e:
         print(f"Error getting weekly summaries: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

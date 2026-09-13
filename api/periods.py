@@ -6,6 +6,7 @@ import uuid
 from models.period_schemas import PeriodEntryCreate
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -61,7 +62,7 @@ async def save_period_entry(period_data: PeriodEntryCreate, tz_offset: int = Dep
 
     except Exception as e:
         print(f"❌ Error saving period entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/period/{user_id}")
 async def get_period_history(user_id: str, limit: int = 12):
@@ -76,7 +77,7 @@ async def get_period_history(user_id: str, limit: int = 12):
 
     except Exception as e:
         print(f"❌ Error getting period history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/period/{user_id}/current")
 async def get_current_period(user_id: str):
@@ -91,7 +92,7 @@ async def get_current_period(user_id: str):
 
     except Exception as e:
         print(f"❌ Error getting current period: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/period/{period_id}")
 async def delete_period_entry(period_id: str):
@@ -111,7 +112,7 @@ async def delete_period_entry(period_id: str):
 
     except Exception as e:
         print(f"❌ Error deleting period entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.put("/period/{period_id}/end")
 async def end_period(period_id: str, end_date: str, tz_offset: int = Depends(get_timezone_offset)):
@@ -140,7 +141,7 @@ async def end_period(period_id: str, end_date: str, tz_offset: int = Depends(get
 
     except Exception as e:
         print(f"❌ Error ending period: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/period/custom")
 async def create_custom_period(period_data: PeriodEntryCreate, tz_offset: int = Depends(get_timezone_offset)):
@@ -185,4 +186,4 @@ async def create_custom_period(period_data: PeriodEntryCreate, tz_offset: int = 
 
     except Exception as e:
         print(f"❌ Error creating custom period entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

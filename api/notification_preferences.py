@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from services.supabase_service import get_supabase_service
 from datetime import datetime
 from typing import Optional
+from utils.errors import internal_error
 
 router = APIRouter(prefix="/notification-preferences", tags=["notification-preferences"])
 
@@ -84,7 +85,7 @@ async def save_notification_preferences(prefs: NotificationPreferences):
         
     except Exception as e:
         print(f"❌ Error saving notification preferences: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/{user_id}")
 async def get_notification_preferences(user_id: str):
@@ -129,7 +130,7 @@ async def get_notification_preferences(user_id: str):
         
     except Exception as e:
         print(f"❌ Error getting notification preferences: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/{user_id}")
 async def delete_notification_preferences(user_id: str):
@@ -149,4 +150,4 @@ async def delete_notification_preferences(user_id: str):
         
     except Exception as e:
         print(f"❌ Error deleting notification preferences: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

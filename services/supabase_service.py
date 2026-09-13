@@ -450,9 +450,12 @@ class SupabaseService:
             }
             
         except Exception as e:
+            # This dict is served verbatim by GET /health; the message must
+            # not carry the exception text (utils/errors.py).
+            print(f"❌ Supabase health check: {type(e).__name__}: {e}")
             return {
                 "status": "unhealthy",
-                "message": f"Supabase connection failed: {str(e)}",
+                "message": "Supabase connection failed",
                 "timestamp": datetime.utcnow().isoformat()
             }
 

@@ -7,6 +7,7 @@ import uuid
 from models.step_schemas import StepEntryCreate
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today, get_user_now
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -58,7 +59,7 @@ async def save_step_entry(step_data: StepEntryCreate, tz_offset: int = Depends(g
 
     except Exception as e:
         print(f"❌ Error saving step entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/steps/{user_id}")
 async def get_steps_by_date(
@@ -93,7 +94,7 @@ async def get_steps_by_date(
             }
     except Exception as e:
         print(f"❌ Error getting steps by date: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.get("/steps/{user_id}/today")
@@ -133,7 +134,7 @@ async def get_today_steps(user_id: str, tz_offset: int = Depends(get_timezone_of
 
     except Exception as e:
         print(f"❌ Error getting today's steps: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/steps/{user_id}/range")
 async def get_steps_in_range(
@@ -157,7 +158,7 @@ async def get_steps_in_range(
         }
     except Exception as e:
         print(f"❌ Error getting steps in range: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/steps/{user_id}/{date}")
 async def delete_step_entry(user_id: str, date: str, tz_offset: int = Depends(get_timezone_offset)):
@@ -180,7 +181,7 @@ async def delete_step_entry(user_id: str, date: str, tz_offset: int = Depends(ge
 
     except Exception as e:
         print(f"❌ Error deleting step entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/steps/{user_id}/stats")
 async def get_step_stats(user_id: str, days: int = 7):
@@ -230,7 +231,7 @@ async def get_step_stats(user_id: str, days: int = 7):
 
     except Exception as e:
         print(f"❌ Error getting step stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 def _calculate_step_streak(achievements: List[bool]) -> int:
     """Calculate current streak of step goal achievements"""
