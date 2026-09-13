@@ -7,6 +7,7 @@ from models.weight_schemas import WeightEntryCreate
 from services.supabase_service import get_supabase_service
 from services.health_trends import weight_direction
 from utils.timezone_utils import get_timezone_offset, get_user_now
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
 
     except Exception as e:
         print(f"❌ Error saving weight entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/weight/{user_id}")
 async def get_weight_history(user_id: str, limit: int = 50):
@@ -82,7 +83,7 @@ async def get_weight_history(user_id: str, limit: int = 50):
         print(f"❌ Error getting weight history: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/weight/{user_id}/latest")
 async def get_latest_weight(user_id: str):
@@ -97,7 +98,7 @@ async def get_latest_weight(user_id: str):
 
     except Exception as e:
         print(f"❌ Error getting latest weight: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.delete("/weight/{entry_id}")
 async def delete_weight_entry(entry_id: str):
@@ -141,7 +142,7 @@ async def delete_weight_entry(entry_id: str):
 
     except Exception as e:
         print(f"❌ Error deleting weight entry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/weight/{user_id}/stats")
 async def get_weight_stats(user_id: str, days: int = 30):
@@ -180,7 +181,7 @@ async def get_weight_stats(user_id: str, days: int = 30):
 
     except Exception as e:
         print(f"❌ Error getting weight stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.patch("/user/{user_id}/weight")
 async def update_user_weight_endpoint(user_id: str, weight_data: dict):
@@ -203,7 +204,7 @@ async def update_user_weight_endpoint(user_id: str, weight_data: dict):
 
     except Exception as e:
         print(f"❌ Error updating user weight: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.post("/user/{user_id}/set-starting-weight")
@@ -238,4 +239,4 @@ async def set_starting_weight_endpoint(user_id: str, weight_data: dict):
 
     except Exception as e:
         print(f"❌ Error setting starting weight: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

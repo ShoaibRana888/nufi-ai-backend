@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional
 from services.supabase_service import get_supabase_service
 from services.weekly_context_manager import get_weekly_context_manager
+from utils.errors import public_message
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -38,7 +39,7 @@ async def check_data(user_id: str):
             'sleep': sleep.data
         }
     except Exception as e:
-        return {'error': str(e)}
+        return {'error': public_message(e)}
 
 @router.get("/list-cached-weeks/{user_id}")
 async def list_cached_weeks(user_id: str):
@@ -61,7 +62,7 @@ async def list_cached_weeks(user_id: str):
             'note': 'These weeks have cached data that may be outdated'
         }
     except Exception as e:
-        return {'error': str(e)}
+        return {'error': public_message(e)}
 
 @router.get("/clear-cache/{user_id}")
 async def clear_weekly_cache(user_id: str):
@@ -88,7 +89,7 @@ async def clear_weekly_cache(user_id: str):
         }
     except Exception as e:
         print(f"❌ Error clearing cache: {e}")
-        return {'error': str(e)}
+        return {'error': public_message(e)}
 
 @router.get("/rebuild-week/{user_id}")
 async def rebuild_specific_week(
@@ -138,7 +139,7 @@ async def rebuild_specific_week(
         print(f"❌ Error rebuilding week: {e}")
         import traceback
         traceback.print_exc()
-        return {'error': str(e)}
+        return {'error': public_message(e)}
 
 @router.get("/rebuild-date-range/{user_id}")
 async def rebuild_date_range(
@@ -215,7 +216,7 @@ async def rebuild_date_range(
         print(f"❌ Error rebuilding date range: {e}")
         import traceback
         traceback.print_exc()
-        return {'error': str(e)}
+        return {'error': public_message(e)}
 
 @router.get("/rebuild-all-weeks/{user_id}")
 async def rebuild_all_weeks(user_id: str, weeks: int = Query(4, description="Number of recent weeks to rebuild")):
@@ -263,4 +264,4 @@ async def rebuild_all_weeks(user_id: str, weeks: int = Query(4, description="Num
         print(f"❌ Error rebuilding all weeks: {e}")
         import traceback
         traceback.print_exc()
-        return {'error': str(e)}
+        return {'error': public_message(e)}

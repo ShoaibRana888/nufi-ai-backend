@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from services.supabase_service import get_supabase_service
 from utils.timezone_utils import get_timezone_offset, get_user_date, get_user_today
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -78,4 +79,4 @@ async def get_daily_summary_flutter(user_id: str, date: str = None, tz_offset: i
         print(f"❌ Error getting daily summary: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

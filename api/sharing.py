@@ -13,6 +13,7 @@ from typing import Optional
 
 from services.supabase_service import get_supabase_service
 from services.chat_context_manager import get_context_manager
+from utils.errors import internal_error
 
 router = APIRouter(prefix="/sharing", tags=["sharing"])
 
@@ -130,7 +131,7 @@ async def set_activity_sharing(user_id: str, body: dict):
         raise
     except Exception as e:
         print(f"❌ Error setting activity sharing: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.get("/{user_id}/defaults")
@@ -145,7 +146,7 @@ async def get_sharing_defaults(user_id: str):
         raise
     except Exception as e:
         print(f"❌ Error getting sharing defaults: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 @router.put("/{user_id}/defaults")
@@ -183,4 +184,4 @@ async def set_sharing_defaults(user_id: str, body: dict):
         raise
     except Exception as e:
         print(f"❌ Error setting sharing defaults: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

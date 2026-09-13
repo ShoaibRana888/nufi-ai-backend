@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from services.supabase_service import get_supabase_service
 from services.openai_service import get_openai_service
 from utils.timezone_utils import get_timezone_offset, get_user_today
+from utils.errors import internal_error
 
 router = APIRouter(prefix="/suggestions", tags=["meal_suggestions"])
 
@@ -126,7 +127,7 @@ async def get_meal_suggestions(
         print(f"❌ Error generating meal suggestions: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 
 def _suggest_meal_type() -> str:
@@ -309,4 +310,4 @@ async def get_quick_suggestions(
         
     except Exception as e:
         print(f"❌ Error getting quick suggestions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)

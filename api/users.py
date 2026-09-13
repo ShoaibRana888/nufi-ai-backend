@@ -8,6 +8,7 @@ import bcrypt
 from models.schemas import UserUpdate
 from models.schemas import UserCreate, UserResponse, UserLogin, UserLoginResponse
 from services.supabase_service import get_supabase_service 
+from utils.errors import internal_error
 
 router = APIRouter()
 
@@ -98,7 +99,7 @@ async def register_user(user_data: UserCreate):
         
     except Exception as e:
         print(f"❌ Error registering user: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.post("/login", response_model=UserLoginResponse)
 async def login_user(login_data: UserLogin):
@@ -150,7 +151,7 @@ async def login_user(login_data: UserLogin):
         
     except Exception as e:
         print(f"❌ Error during login: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
 
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(user_id: str):
@@ -180,7 +181,7 @@ async def get_user(user_id: str):
         
     except Exception as e:
         print(f"❌ Error getting user: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(e)
     
 @router.put("/update-user/{user_id}", response_model=Dict[str, Any])
 async def update_user_profile(user_id: str, user_data: UserUpdate):
@@ -227,7 +228,7 @@ async def update_user_profile(user_id: str, user_data: UserUpdate):
         raise
     except Exception as e:
         print(f"❌ Error updating user profile: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise internal_error(e)
     
 
 

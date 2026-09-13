@@ -5,6 +5,9 @@ from datetime import datetime, date, timedelta
 import asyncio
 import json
 from services.supabase_service import get_supabase_service
+# These result dicts are served verbatim by api/weekly_context.py, so a
+# failure must not carry the exception text (utils/errors.py).
+from utils.errors import public_message
 
 # How long a cached CURRENT-week snapshot is served before we refresh it.
 # Rebuilding the current week aggregates the whole week from live daily data
@@ -121,7 +124,7 @@ class WeeklyContextManager:
 
         except Exception as e:
             print(f"Error getting weekly context: {e}")
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': public_message(e)}
 
     def _weekly_result(self, row: Dict[str, Any], week_start: date, week_end: date) -> Dict[str, Any]:
         """Shape a stored weekly_contexts row into the standard return payload."""
@@ -345,7 +348,7 @@ class WeeklyContextManager:
             print(f"❌ Error creating weekly context: {e}")
             import traceback
             traceback.print_exc()
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': public_message(e)}
     
     async def _aggregate_weekly_data(
     self, 
@@ -837,7 +840,7 @@ class WeeklyContextManager:
             
         except Exception as e:
             print(f"Error updating weekly context: {e}")
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': public_message(e)}
 
 # Singleton instance
 _weekly_context_manager = None

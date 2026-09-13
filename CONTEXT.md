@@ -236,14 +236,25 @@ designed interface, not an accident.
     ADR-0005 and ADR-0006 closed. Deleted on both sides. **Grep for the wrapper, not
     just the name**: a method with one caller in its own file is not dead.
   - `POST /chat/context/fix-today/{user_id}` — no client caller, server-day, deleted.
-- **A response body is not a log line.** 111 handlers in `api/` put `str(e)` into a
-  response — 96 as `HTTPException(500, detail=str(e))`, 13 as `{'error': str(e)}`, 2 in
-  f-strings — and no route has auth, so a PostgREST failure ships its SQL message,
-  error code, hint and table/column names to whoever asked. `_read_errors` was the one
-  such door on a 200 path and a contract field, so it was closed first (ADR-0007). The
-  other 111 are one change, not 111 — a generic `detail` with the exception logged, or a
-  5xx-rewriting middleware — and their own inventory: confirm nothing in `nufi_app`
-  parses a 500 `detail` before choosing. Not done.
+- **A response body is not a log line.** 111 handlers put `str(e)` into a response —
+  96 as `HTTPException(500, detail=str(e))`, 13 as `{'error': str(e)}`, 2 in f-strings,
+  plus three `error=str(e)` model fields in auth — and no route has auth, so a PostgREST
+  failure shipped its SQL message, error code, hint and table/column names to whoever
+  asked. `_read_errors` was closed first (ADR-0007); the rest went through one helper on
+  2026-09-13: `utils/errors.py` — `raise internal_error(e)` in a catch-all, or
+  `public_message(e)` where the handler answers 200 with an error field. The client
+  reads `detail` only as display text with a fallback (sixteen
+  `errorData['detail'] ?? '...'` sites), never for structure.
+  - **The same catch-all was turning deliberate 4xx into 500s.** Handlers raise their
+    `HTTPException(404)` *inside* the `try`, and `except Exception as e: raise
+    HTTPException(500, detail=str(e))` re-raised it as 500 with detail
+    `"404: User not found"` — confirmed through the app on `GET /api/users/{id}`. The
+    client survived because it displays `detail` verbatim. `internal_error` passes an
+    HTTPException through, so those are the right status now.
+    `tests/test_no_exception_text_in_responses.py` scans `api/` for any `str(e)` on a
+    response line and fails the suite on the next one.
+  - **No auth on the API** is recorded, not fixed: a product decision about the
+    client's session model.
 - **Leaked read** — a raw `.client.table(...)` call made *outside* the store. The
   context builders have none left: candidate #1 pulled all 17 behind
   `get_shared_activities_for_date`. What remains is two distinct groups, and neither is
