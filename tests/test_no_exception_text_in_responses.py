@@ -25,22 +25,30 @@ import api.water as water_endpoints
 import main
 from utils.errors import INTERNAL_ERROR_DETAIL, internal_error, public_message
 
-API_DIR = pathlib.Path(__file__).parent.parent / 'api'
+ROOT = pathlib.Path(__file__).parent.parent
+
+# Everything that builds a response body: the routers, the app module's own
+# routes (/health, /test/ai), and the services whose result dicts some
+# endpoints return verbatim (the weekly manager, the store's health check).
+SCANNED = sorted((ROOT / 'api').glob('*.py')) + [ROOT / 'main.py'] + \
+    sorted((ROOT / 'services').glob('*.py'))
 
 # `str(e)` or `{e}` on a line that builds a response -- a `detail=`, an
-# `'error':` key, or an `error=` model field. Log lines are exempt.
-RESPONSE_LINE = re.compile(r"""(detail\s*=|['"]error['"]\s*:|\berror\s*=)""")
+# `'error':` / `'message':` key, or an `error=` model field. Log lines and
+# re-raises are exempt: a re-raised message reaches a handler and is
+# generic'd there.
+RESPONSE_LINE = re.compile(r"""(detail\s*=|['"](error|message)['"]\s*:|\berror\s*=)""")
 EXCEPTION_TEXT = re.compile(r"""str\(e\)|\{e\}|\{str\(e\)\}""")
 
 
 def test_no_handler_puts_exception_text_in_a_response():
     offenders = []
-    for path in sorted(API_DIR.glob('*.py')):
+    for path in SCANNED:
         for number, line in enumerate(path.read_text().splitlines(), 1):
-            if 'print(' in line:
+            if 'print(' in line or 'raise ' in line:
                 continue
             if RESPONSE_LINE.search(line) and EXCEPTION_TEXT.search(line):
-                offenders.append(f'{path.name}:{number}: {line.strip()}')
+                offenders.append(f'{path.relative_to(ROOT)}:{number}: {line.strip()}')
     assert offenders == [], (
         'exception text in a response body -- use internal_error(e) / '
         'public_message(e):\n' + '\n'.join(offenders)
@@ -106,3 +114,42 @@ def test_a_store_failure_is_a_500_with_no_exception_text(client, monkeypatch):
     assert response.json() == {'detail': INTERNAL_ERROR_DETAIL}
     for leaked in ('supabase.co', 'daily_water', 'rest/v1'):
         assert leaked not in response.text, leaked
+
+
+def test_a_weekly_manager_failure_reaches_the_wire_without_its_text(client, monkeypatch):
+    """The weekly endpoints return the manager's result dict verbatim, and
+    the manager answers a failure with {'success': False, 'error': ...}
+    rather than raising -- so `internal_error` never saw it."""
+    import api.weekly_context as weekly_endpoints
+    from services.weekly_context_manager import WeeklyContextManager
+
+    class _Exploding:
+        def table(self, _name):
+            raise RuntimeError("{'message': 'relation \"weekly_contexts\" does not exist', 'code': '42P01'}")
+
+    manager = WeeklyContextManager.__new__(WeeklyContextManager)
+    manager.supabase_service = type('S', (), {'client': _Exploding()})()
+    monkeypatch.setattr(weekly_endpoints, 'get_weekly_context_manager', lambda: manager)
+
+    response = client.get('/api/health/weekly/context/u1?date=2026-09-07')
+
+    assert response.status_code == 200
+    assert response.json() == {'success': False, 'error': INTERNAL_ERROR_DETAIL}
+    for leaked in ('42P01', 'weekly_contexts', 'relation'):
+        assert leaked not in response.text, leaked
+
+
+def test_the_health_route_does_not_carry_the_exception(client, monkeypatch):
+    import main as app_module
+
+    class _Store:
+        async def health_check(self):
+            raise RuntimeError("Server error '500' for url 'https://wehzxcqudlfvewilgokf.supabase.co/rest/v1/'")
+
+    import services.supabase_service as store_module
+    monkeypatch.setattr(store_module, 'get_supabase_service', lambda: _Store())
+
+    response = client.get('/health')
+
+    assert response.json()['status'] == 'unhealthy'
+    assert 'supabase.co' not in response.text
