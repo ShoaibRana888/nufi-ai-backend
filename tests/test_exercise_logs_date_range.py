@@ -19,6 +19,8 @@ and before '2026-09-07'.
 """
 import asyncio
 
+import pytest
+
 from services.supabase_service import SupabaseService
 
 DAY1, DAY2, DAY3 = '2026-09-05', '2026-09-06', '2026-09-07'
@@ -126,3 +128,20 @@ def test_no_range_returns_everything():
 
     assert ids == ['a', 'b', 'c', 'd', 'e']
     assert bounds == []
+
+
+# --- a failed read propagates ------------------------------------------------
+
+
+def test_a_failed_read_raises_rather_than_returning_an_empty_week():
+    """`[]` from a broken read told /exercise/stats the user logged nothing.
+    The range-read cousin of the by-date fix in ADR-0004."""
+    class _Exploding:
+        def table(self, _name):
+            raise RuntimeError('exercise_logs unreachable')
+
+    store = SupabaseService.__new__(SupabaseService)
+    store.client = _Exploding()
+
+    with pytest.raises(RuntimeError, match='unreachable'):
+        asyncio.run(store.get_exercise_logs('u1', start_date=DAY1, end_date=DAY3))

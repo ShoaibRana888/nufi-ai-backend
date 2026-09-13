@@ -175,10 +175,16 @@ designed interface, not an accident.
   them will not respect `shared_with_chat`, and its name will not say so. That is how the
   water/steps/sleep pairs arose — and in all three the unsafe variant was the *more* used
   one. `tests/test_store_by_date_surface.py` now pins the surface.
-- **A read reports failure; it does not return it as data.** *(Still open on the range
-  reads: `get_exercise_logs` swallows to `[]`, so `/exercise/stats` reports an
-  unreachable database as a week with no workouts. ADR-0004 fixed the by-date leaves
-  only.)* The by-date reads used to
+- **A read reports failure; it does not return it as data.** ADR-0004 fixed the seven
+  by-date leaves; `get_exercise_logs` followed on 2026-09-13. **41 store methods still
+  swallow** a failure into `[]`, `{}`, `None` or `False` (enumerated by walking the AST
+  for `except` handlers that return an empty value). Two of those have sharper
+  consequences than an empty list: `get_user_by_id` → `None` turns a database outage
+  into a 404 "User not found", and `get_supplement_log_by_date` → `None` reads as "no
+  existing log, create one" — the duplicate-row class ADR-0004 closed for water and
+  steps. The deletes return `False`, which the endpoints report as "not found". That
+  sweep needs a per-caller inventory, because some callers treat the empty value as a
+  legitimate branch; its own change. The by-date reads used to
   wrap every query in `try/except` and return the value that means "nothing logged" — a
   broken tracker and a quiet day were the same answer. That silently defeated the layer
   built on top of it (`_read_errors`), wrote duplicate rows on the upsert paths that
