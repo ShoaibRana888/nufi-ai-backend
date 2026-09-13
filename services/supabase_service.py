@@ -1257,59 +1257,61 @@ class SupabaseService:
             raise Exception(f"Failed to create exercise log: {str(e)}")
 
     async def get_exercise_logs(self, user_id: str, exercise_type: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get exercise logs for a user"""
-        try:
-            print(f"🔍 Getting exercise logs for user: {user_id}")
-            print(f"🔍 Filters - type: {exercise_type}, start: {start_date}, end: {end_date}, limit: {limit}")
-            
-            query = self.client.table('exercise_logs')\
-                .select('*')\
-                .eq('user_id', user_id)\
-                .order('exercise_date', desc=True)\
-                .limit(limit)
-            
-            # Half-open range on a timestamptz column: `exercise_date` carries a
-            # time-of-day whenever a writer stores one, and `.lte(end_date)`
-            # compares against midnight of that day -- dropping every workout
-            # logged during it. Each bound stands alone, so the same-day case
-            # is just the range [day, day+1) and needs no special form.
-            if start_date:
-                query = query.gte('exercise_date', start_date)
-                print(f"🔍 Start date filter: >= {start_date}")
-            if end_date:
-                end_exclusive = (datetime.strptime(end_date, '%Y-%m-%d').date()
-                                 + timedelta(days=1))
-                query = query.lt('exercise_date', str(end_exclusive))
-                print(f"🔍 End date filter: < {end_exclusive}")
-                
-            if exercise_type:
-                query = query.eq('exercise_type', exercise_type)
-                print(f"🔍 Exercise type filter: {exercise_type}")
-            
-            response = query.execute()
-            
-            logs = response.data or []
-            print(f"✅ Retrieved {len(logs)} exercise logs")
+        """Exercise logs for a user, optionally within a date range.
 
-            for log in logs:
-                if log.get('duration_minutes') is None or log.get('duration_minutes') == 0:
-                    print(f"⚠️ Warning: Exercise {log.get('exercise_name')} has no duration, calculating...")
-                    # Calculate on the fly for old/corrupted records
-                    if log.get('exercise_type') == 'strength' and log.get('sets'):
-                        log['duration_minutes'] = log['sets'] * 2
-                    else:
-                        log['duration_minutes'] = 5
+        A failure propagates. This used to swallow it into `[]`, which told
+        every caller -- `/exercise/stats`, the weekly summary, the nutrition
+        trend, meal suggestions -- that the user had logged no workouts when
+        the database was unreachable. All eight callers sit inside an
+        endpoint-level `try` that answers 500, which is the honest answer.
+        The same pattern remains on 41 other store methods (CONTEXT.md).
+        """
+        print(f"🔍 Getting exercise logs for user: {user_id}")
+        print(f"🔍 Filters - type: {exercise_type}, start: {start_date}, end: {end_date}, limit: {limit}")
+        
+        query = self.client.table('exercise_logs')\
+            .select('*')\
+            .eq('user_id', user_id)\
+            .order('exercise_date', desc=True)\
+            .limit(limit)
+        
+        # Half-open range on a timestamptz column: `exercise_date` carries a
+        # time-of-day whenever a writer stores one, and `.lte(end_date)`
+        # compares against midnight of that day -- dropping every workout
+        # logged during it. Each bound stands alone, so the same-day case
+        # is just the range [day, day+1) and needs no special form.
+        if start_date:
+            query = query.gte('exercise_date', start_date)
+            print(f"🔍 Start date filter: >= {start_date}")
+        if end_date:
+            end_exclusive = (datetime.strptime(end_date, '%Y-%m-%d').date()
+                             + timedelta(days=1))
+            query = query.lt('exercise_date', str(end_exclusive))
+            print(f"🔍 End date filter: < {end_exclusive}")
             
-            # Debug the logs
-            for i, log in enumerate(logs):
-                print(f"🔍 Log {i+1}: {log.get('exercise_name')} - {log.get('duration_minutes')}min on {log.get('exercise_date')}")
-            
-            return logs
-        except Exception as e:
-            print(f"❌ Error getting exercise logs: {e}")
-            import traceback
-            traceback.print_exc()
-            return []
+        if exercise_type:
+            query = query.eq('exercise_type', exercise_type)
+            print(f"🔍 Exercise type filter: {exercise_type}")
+        
+        response = query.execute()
+        
+        logs = response.data or []
+        print(f"✅ Retrieved {len(logs)} exercise logs")
+
+        for log in logs:
+            if log.get('duration_minutes') is None or log.get('duration_minutes') == 0:
+                print(f"⚠️ Warning: Exercise {log.get('exercise_name')} has no duration, calculating...")
+                # Calculate on the fly for old/corrupted records
+                if log.get('exercise_type') == 'strength' and log.get('sets'):
+                    log['duration_minutes'] = log['sets'] * 2
+                else:
+                    log['duration_minutes'] = 5
+        
+        # Debug the logs
+        for i, log in enumerate(logs):
+            print(f"🔍 Log {i+1}: {log.get('exercise_name')} - {log.get('duration_minutes')}min on {log.get('exercise_date')}")
+        
+        return logs
 
     async def delete_exercise_log(self, exercise_id: str) -> bool:
         """Delete an exercise log"""
