@@ -176,24 +176,46 @@ designed interface, not an accident.
   water/steps/sleep pairs arose — and in all three the unsafe variant was the *more* used
   one. `tests/test_store_by_date_surface.py` now pins the surface.
 - **A read reports failure; it does not return it as data.** ADR-0004 fixed the seven
-  by-date leaves; `get_exercise_logs` followed on 2026-09-13. **41 store methods still
-  swallow** a failure into `[]`, `{}`, `None` or `False` (enumerated by walking the AST
-  for `except` handlers that return an empty value). Two of those have sharper
-  consequences than an empty list: `get_user_by_id` → `None` turns a database outage
-  into a 404 "User not found", and `get_supplement_log_by_date` → `None` reads as "no
-  existing log, create one" — the duplicate-row class ADR-0004 closed for water and
-  steps. The deletes return `False`, which the endpoints report as "not found". That
-  sweep needs a per-caller inventory, because some callers treat the empty value as a
-  legitimate branch; its own change. The by-date reads used to
+  by-date leaves; `get_exercise_logs` followed on 2026-09-13, and the rest of the
+  store — **42 methods, not the 41 first counted** (`update_preset_usage` swallowed
+  without returning) — the same day in
+  [ADR-0009](docs/adr/0009-the-store-reports-failure.md), with a table of all 91
+  callers and how each treated the empty value. Every `except` in the store now
+  re-raises, except the three that turn a failure into a *report* a caller reads
+  (`delete_user_account`'s per-table map, `health_check`, `_read_errors`);
+  `tests/test_store_reports_failure.py` names that allowlist and fails on the next
+  swallowing handler. Two callers degrade on purpose, with the reason in a comment —
+  both wrap `initialize_starting_weight_for_user`, a backfill that runs *after* the
+  row it follows is stored. The by-date reads used to
   wrap every query in `try/except` and return the value that means "nothing logged" — a
   broken tracker and a quiet day were the same answer. That silently defeated the layer
-  built on top of it (`_read_errors`), wrote duplicate rows on the upsert paths that
-  check for an existing entry first, and told the coach the user had logged nothing when
+  built on top of it (`_read_errors`), turned the upsert paths' updates into failed
+  inserts, and told the coach the user had logged nothing when
   the database was unreachable. Fixed in
   [ADR-0004](docs/adr/0004-daily-snapshot-endpoint.md); pinned by
   `tests/test_by_date_reads_propagate_errors.py`. **The corollary for tests:** stubbing
   the method under a composition proves the composition, not the system — those tests
   passed for a year against leaves that could not raise.
+  - **The "duplicate row" this file used to name was not one.** `daily_water`,
+    `daily_steps`, `daily_nutrition` and `supplement_logs` all carry a unique
+    constraint on the day (checked in the live schema, ADR-0009), so a swallowed
+    existence check produced a failed insert, not a second row. `period_entries`
+    has no such guard, and `POST /period`'s open-period check *was* a real duplicate
+    path. The same inventory found three read-then-write sites that did worse than
+    return empty on a failed read — zeroing a day's nutrition totals, reverting the
+    profile weight, leaving old supplement preferences active beside new ones — and
+    two that answered an outage as "User not found" (404) and "Invalid credentials"
+    (401). The schema is the other half of every "what happens on the empty value"
+    question; the code alone said duplicate.
+  - **`get_user_by_id` needed more than unwrapping.** Its `.single()` made PostgREST
+    answer a missing row with an error, so the swallowing handler was also how "not
+    found" became `None`; removed alone, every genuine 404 would have become a 500.
+    It indexes the list now — and is the same query as `get_user` under a second
+    name, the ADR-0003 smell, left for a fold.
+  - **The ten `delete_*` return `True` whenever the query ran**, matched row or not,
+    so their endpoints' "not found" branches were reachable only on a failure and
+    are unreachable now. The honest `bool(response.data)` changes a 200 body the
+    client reads; its own change.
 - **A route that has never run has never been tested.** Fixing the doubled `/chat`
   prefix made `check_context_date` and `daily_context_reset` reachable for the first
   time, and both computed "today" from `datetime.now().date()` — the server clock —
@@ -335,7 +357,9 @@ designed interface, not an accident.
   was structurally dead. For the sharing guard the premise named the wrong source of
   truth — the pre-write row — and the precedent (water's guard) had the same gap.
   Check what is live before extending it, **and check the database, not just the
-  repo**: the insert trigger that changed ADR-0005 is invisible from the code.
+  repo**: the insert trigger that changed ADR-0005 is invisible from the code, and
+  the unique constraints that changed ADR-0009's "duplicate row" into "failed
+  insert" are too.
 - Architecture vocabulary (module, interface, seam, adapter, depth, leverage, locality)
   lives in the design skill, not here. This file names the *domain*; that file names the
   *shapes*.

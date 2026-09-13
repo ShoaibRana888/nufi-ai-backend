@@ -51,8 +51,15 @@ async def save_weight_entry(weight_data: WeightEntryCreate, tz_offset: int = Dep
 
         created_entry = await supabase_service.create_weight_entry(weight_entry_data)
 
-        # ✅ NEW: Initialize starting weight if this is user's first entry
-        await supabase_service.initialize_starting_weight_for_user(weight_data.user_id)
+        # Initialize starting weight if this is the user's first entry. The
+        # entry is already stored, so a failure here must not fail the save:
+        # weight has no upsert (every save is a new row), and a 500 invites
+        # the retry that would write a second one. Best-effort bookkeeping,
+        # logged, and the store reports it rather than hiding it.
+        try:
+            await supabase_service.initialize_starting_weight_for_user(weight_data.user_id)
+        except Exception as e:
+            print(f"⚠️ Weight saved, but initializing starting weight failed: {e}")
 
         return {"success": True, "id": created_entry['id'], "entry": created_entry}
 
