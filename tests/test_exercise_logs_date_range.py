@@ -145,3 +145,23 @@ def test_a_failed_read_raises_rather_than_returning_an_empty_week():
 
     with pytest.raises(RuntimeError, match='unreachable'):
         asyncio.run(store.get_exercise_logs('u1', start_date=DAY1, end_date=DAY3))
+
+
+def test_the_stats_endpoints_answer_500_not_a_zeroed_200(monkeypatch):
+    """Two of the eight callers caught the propagated failure and returned
+    200 with empty stats -- the same lie one layer up. Raised in review."""
+    from fastapi.testclient import TestClient
+    import api.exercise as exercise_endpoints
+    import main
+
+    class _Store:
+        async def get_exercise_logs(self, *a, **k):
+            raise RuntimeError('exercise_logs unreachable')
+
+    monkeypatch.setattr(exercise_endpoints, 'get_supabase_service', lambda: _Store())
+    client = TestClient(main.app, raise_server_exceptions=False)
+
+    for path in ('/api/health/exercise/stats/u1', '/api/health/exercise/weekly-summary/u1'):
+        response = client.get(path)
+        assert response.status_code == 500, path
+        assert 'unreachable' not in response.text, path
