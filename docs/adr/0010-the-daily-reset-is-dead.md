@@ -69,20 +69,37 @@ entries inside `context_data`.
 > the fallback could expose with a wrong value is among them — the 2 with
 > duplicates (newest 2025-09-28) and the 52 with drifted flat totals where the
 > banner would show a number (newest 2026-07-09). The 12 rows within retention
-> are clean. The migration is the retention cleanup the repo already has, run
-> once; the rows are a cache, regenerable from the source tables. Decision 2
-> stands on that, and not before it.
+> are clean. Decision 2 stands on those rows being repaired, and not before.
+>
+> **Migrated 2026-09-14, by running the function once at rest.** Rather than
+> delete past-retention rows or reimplement the repair in SQL, the 53 flagged
+> rows were fetched, `main`'s `deduplicate_context` was run over each (unbound;
+> it never used `self`) on exactly the input it saw in production, and the keys
+> it changes were merged back into `today_progress` with `||` in one batched
+> `UPDATE … FROM (VALUES …)` — nothing else in `context_data` touched, the
+> statement guarded to rows older than retention. **52 rows changed**: 51 only
+> gained the flat `total_*` fields and counters (their `totals` were already
+> what the function computes), and 2025-09-24 also lost two genuinely repeated
+> meal ids. **One row was deliberately not touched** (2025-09-28): its two meals
+> and three exercises are distinct entries with no `id`, already consistent
+> (1200 = 550 + 650). It was flagged only because grouping by `id` lumps nulls —
+> and the function has the same blind spot, collapsing them to one meal and one
+> exercise, with `exercise_minutes` 0 because its key is `duration`. So every
+> read of that row through the "repair" had shown the wrong numbers; one more
+> reason the function does not survive. After: 0 rows with a repeated id, 0
+> rows whose flat totals differ where `meals_logged > 0`; the 62 that still
+> differ are the empty initial rows (no flat fields, `meals_logged` 0), which
+> the banner never reads. Spot-checked 2026-07-09 at 1700 / 1700.
 
 ## Decision
 
 1. **Delete the two routes, `ensure_daily_context`, and the client's
    `checkAndResetDailyContext` with its two callers** (`nufi_app` PR #21). Merge
    the client first, so it stops calling before the routes stop answering.
-2. **Delete `deduplicate_context`, after the legacy rows are gone.** Run the
-   retention cleanup (`DELETE /context/cleanup`, `days_to_keep=7`, or its SQL) on
-   the live table first, so no row the cleanup existed for remains for the
-   fallback to serve. Then `get_or_create_context` serves `context_data` as
-   stored: what `rebuild_context` writes is what is read.
+2. **Delete `deduplicate_context`, after the legacy rows are repaired** — done,
+   by applying the function once at rest (above), so no row it existed for
+   remains for the fallback to serve. `get_or_create_context` serves
+   `context_data` as stored: what `rebuild_context` writes is what is read.
 3. **Refresh the client-path fixture** — the two lines go, and the header names
    the client commit that removed the calls. `tests/test_daily_reset_is_gone.py`
    pins the routes and methods absent and the stored row served verbatim.

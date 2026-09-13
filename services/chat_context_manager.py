@@ -21,12 +21,11 @@ class ChatContextManager:
         The stored row is served as it is. The per-read cleanup that once
         ran here (`deduplicate_context`, for rows the old incremental merge
         left with repeated meals and drifted flat totals) is gone, and the
-        rows it existed for went with it: every one was older than the
-        7-day retention `DELETE /context/cleanup` defines, and that cleanup
-        was run before this landed. On the rebuild-failed fallback this
-        read serves a row without rewriting it, so a legacy row here would
-        have been served as it was -- which is why the rows had to go
-        first, not the code. ADR-0010.
+        rows it existed for were repaired first by running it once at rest
+        (2026-09-14). On the rebuild-failed fallback this read serves a row
+        without rewriting it, so a legacy row here would have been served
+        as it was -- which is why the rows had to be fixed before the code
+        went. ADR-0010.
         """
         try:
             # Try to get existing context
