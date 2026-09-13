@@ -201,6 +201,14 @@ designed interface, not an accident.
   far enough east of the Oregon region, a row dated to the server's today compared
   equal to "today" and the reset never fired. Making dormant code reachable is a
   behaviour change: read it before shipping the fix that switches it on.
+- **The weekly endpoints are on the user's day too** (2026-09-13). `api/weekly_context.py`
+  resolved both the target and "today" from the server clock; the dashboard's weekly
+  card sends no date, so a UTC-8 user's Sunday evening read the *next*, empty week, and
+  the manager's completed-week freeze (ADR-0006's correction) dropped that Sunday's
+  evening for good. Also found: `POST /weekly/rebuild` declared `date` as a query param
+  while the client sends it in the body, so every rebuild targeted the server's current
+  week. `tests/test_weekly_context_users_day.py`. `api/debug.py` still uses the server
+  date in its operator-facing loops; not client-called, left.
 - **The server clock is UTC.** Confirmed from `chat_contexts` rows, not assumed:
   `context_metadata.created_at` (server `datetime.now()`) and the DB-side
   `created_at` (`now()`) agree to the tenth of a second. So `datetime.now().date()`

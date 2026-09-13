@@ -1,27 +1,50 @@
 # api/weekly_context.py
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, date
-from typing import Optional
+from typing import Any, Dict, Optional
 from services.weekly_context_manager import get_weekly_context_manager
 from utils.errors import internal_error
+from utils.timezone_utils import get_timezone_offset, get_user_today
 
 router = APIRouter(prefix="/weekly", tags=["weekly_context"])
+
+
+def _parse_day(value: Optional[str], fallback: date) -> date:
+    if not value:
+        return fallback
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        # TypeError: the body carried a non-string (`{"date": 123}`), which
+        # the dict annotation lets through. Bad input either way, not a 500.
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
 
 @router.get("/context/{user_id}")
 async def get_weekly_context(
     user_id: str, 
-    date: Optional[str] = None
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset),
 ):
-    """Get weekly context for a specific date"""
+    """The week containing `date` (default: the user's today).
+
+    Both the target and "today" are the user's, not the server's. The
+    dashboard's weekly card sends no date, so on the server clock a UTC-8
+    user's Sunday evening read the *next*, empty week; and the manager
+    judges whether a week is still current against `today`, and freezes a
+    week it thinks is over -- so that Sunday's remaining activities were
+    dropped from the week for good (ADR-0006, corrected in review).
+    """
     try:
         manager = get_weekly_context_manager()
-        
-        target_date = datetime.strptime(date, '%Y-%m-%d').date() if date else datetime.now().date()
-        result = await manager.get_or_create_weekly_context(user_id, target_date)
-        
-        return result
-        
+        today = get_user_today(tz_offset)
+        target_date = _parse_day(date, today)
+        return await manager.get_or_create_weekly_context(
+            user_id, target_date, today=today
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error getting weekly context: {e}")
         raise internal_error(e)
@@ -29,12 +52,15 @@ async def get_weekly_context(
 @router.get("/recent/{user_id}")
 async def get_recent_weeks(
     user_id: str,
-    weeks: int = 4
+    weeks: int = 4,
+    tz_offset: int = Depends(get_timezone_offset),
 ):
-    """Get recent weeks' contexts"""
+    """Recent weeks, counting back from the user's today."""
     try:
         manager = get_weekly_context_manager()
-        contexts = await manager.get_recent_weeks_context(user_id, weeks)
+        contexts = await manager.get_recent_weeks_context(
+            user_id, weeks, end_date=get_user_today(tz_offset)
+        )
         
         return {
             'success': True,
@@ -49,17 +75,24 @@ async def get_recent_weeks(
 @router.post("/rebuild/{user_id}")
 async def rebuild_weekly_context(
     user_id: str,
-    date: Optional[str] = None
+    body: Optional[Dict[str, Any]] = None,
+    date: Optional[str] = None,
+    tz_offset: int = Depends(get_timezone_offset),
 ):
-    """Force rebuild weekly context"""
+    """Force rebuild the week containing `date` (default: the user's today).
+
+    The client sends `date` in the JSON body; this handler used to declare it
+    as a query parameter only, so the body was ignored and every rebuild --
+    including the debug page's "four weeks back" loop -- rebuilt the server's
+    current week. Both spellings are accepted now; the body wins.
+    """
     try:
         manager = get_weekly_context_manager()
-        
-        target_date = datetime.strptime(date, '%Y-%m-%d').date() if date else datetime.now().date()
-        result = await manager.update_weekly_context(user_id, target_date)
-        
-        return result
-        
+        raw = (body or {}).get('date') or date
+        target_date = _parse_day(raw, get_user_today(tz_offset))
+        return await manager.update_weekly_context(user_id, target_date)
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error rebuilding weekly context: {e}")
         raise internal_error(e)
