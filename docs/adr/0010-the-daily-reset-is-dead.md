@@ -53,18 +53,36 @@ for rows the old incremental merge produced. ADR-0008 deleted the merge and said
 "once no such rows exist it is a deletion candidate". The database, queried
 directly: 184 rows; **3 carry duplicates, all dated September 2025**; 114 have
 flat totals that disagree with `totals`, of which the recent ones are the reset's
-initial rows (no flat fields at all) and the rest are pre-ADR-0008 rows. Every
-one of those is rewritten by `rebuild_context` on its next read, before the
-cleanup could have run on it. Note `chat_contexts` has `UNIQUE (user_id, date)`:
-the duplicates were never rows, only entries inside `context_data`.
+initial rows (no flat fields at all) and the rest are pre-ADR-0008 rows. Note
+`chat_contexts` has `UNIQUE (user_id, date)`: the duplicates were never rows, only
+entries inside `context_data`.
+
+> **Corrected in review (Codex, PR #19).** This first said every such row "is
+> rewritten by `rebuild_context` on its next read, before the cleanup could have
+> run on it". That holds only when the rebuild succeeds. On the rebuild-failed
+> fallback — the one path that reads a stored row without rewriting it — a legacy
+> row would be served as it is, duplicates and drifted `total_*` included. The
+> claim assumed the success path; the fallback is the path the cleanup existed
+> for. So the condition ADR-0008 set — *once no such rows exist* — has to be made
+> true, not argued around. Counted precisely: of 184 rows, **172 are older than
+> the 7-day retention `DELETE /context/cleanup` already defines**, and every row
+> the fallback could expose with a wrong value is among them — the 2 with
+> duplicates (newest 2025-09-28) and the 52 with drifted flat totals where the
+> banner would show a number (newest 2026-07-09). The 12 rows within retention
+> are clean. The migration is the retention cleanup the repo already has, run
+> once; the rows are a cache, regenerable from the source tables. Decision 2
+> stands on that, and not before it.
 
 ## Decision
 
 1. **Delete the two routes, `ensure_daily_context`, and the client's
    `checkAndResetDailyContext` with its two callers** (`nufi_app` PR #21). Merge
    the client first, so it stops calling before the routes stop answering.
-2. **Delete `deduplicate_context`.** `get_or_create_context` serves
-   `context_data` as stored. What `rebuild_context` writes is what is read.
+2. **Delete `deduplicate_context`, after the legacy rows are gone.** Run the
+   retention cleanup (`DELETE /context/cleanup`, `days_to_keep=7`, or its SQL) on
+   the live table first, so no row the cleanup existed for remains for the
+   fallback to serve. Then `get_or_create_context` serves `context_data` as
+   stored: what `rebuild_context` writes is what is read.
 3. **Refresh the client-path fixture** — the two lines go, and the header names
    the client commit that removed the calls. `tests/test_daily_reset_is_gone.py`
    pins the routes and methods absent and the stored row served verbatim.
